@@ -12,6 +12,8 @@ import android.os.Bundle
 import android.provider.Settings
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.net.Uri
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -27,6 +29,9 @@ class JuanWebActivity : Activity() {
     private val exportQueue = ArrayDeque<Pair<String, String>>()
     private var waitingForNotification = false
     private var connectionRequestInFlight = false
+    private var pageReady = false
+    private var pendingImport: String? = null
+    private var pendingImportError: String? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(b: Bundle?) {
@@ -41,6 +46,9 @@ class JuanWebActivity : Activity() {
             setBackgroundColor(0xff0a111f.toInt())
             settings.javaScriptEnabled = true; settings.domStorageEnabled = true
             settings.allowContentAccess = false
+            webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) { pageReady = true; flushImport() }
+            }
             addJavascriptInterface(Bridge(), "JuanBridge")
             loadUrl("file:///android_asset/juanvpn-ui.html")
         }
@@ -53,6 +61,49 @@ class JuanWebActivity : Activity() {
         WindowCompat.getInsetsController(window, root).isAppearanceLightStatusBars = false
         setContentView(root)
         ViewCompat.requestApplyInsets(root)
+        if (b == null) handleIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    /** Opens a .hj file chosen from a file manager, chat app or share sheet. */
+    private fun handleIntent(i: Intent?) {
+        if (i == null) return
+        val uri: Uri? = when (i.action) {
+            Intent.ACTION_VIEW -> i.data
+            Intent.ACTION_SEND -> if (Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                else @Suppress("DEPRECATION") i.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+            else -> null
+        }
+        if (uri == null) return
+        try {
+            val text = contentResolver.openInputStream(uri)?.use { s ->
+                val out = java.io.ByteArrayOutputStream(); val buf = ByteArray(8192); var total = 0
+                while (true) {
+                    val n = s.read(buf); if (n < 0) break
+                    total += n; require(total <= 2_000_000) { "Config file is too large" }
+                    out.write(buf, 0, n)
+                }
+                out.toString("UTF-8").removePrefix("\uFEFF")
+            } ?: throw IllegalStateException("Could not read this file")
+            JuanBus.log("HJ file opened from another app")
+            pendingImport = text
+        } catch (e: Exception) {
+            JuanBus.log("HJ open failed: ${e.message}")
+            pendingImportError = e.message ?: "Could not open this file"
+        }
+        setIntent(Intent())
+        flushImport()
+    }
+
+    private fun flushImport() {
+        if (!pageReady) return
+        pendingImport?.let { pendingImport = null; js("JuanUI.importFile(${q(it)})") }
+        pendingImportError?.let { pendingImportError = null; js("JuanUI.importError(${q(it)})") }
     }
 
     @Deprecated("Deprecated in Java")

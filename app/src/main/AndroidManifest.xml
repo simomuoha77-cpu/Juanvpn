@@ -8,6 +8,8 @@
     <application
         android:allowBackup="false"
         android:label="JUAN VPN"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="false">
         <provider
@@ -35,10 +37,55 @@
                 <action android:name="android.net.VpnService"/>
             </intent-filter>
         </service>
-        <activity android:name=".JuanWebActivity" android:exported="true" android:windowSoftInputMode="adjustResize">
+        <activity android:name=".JuanWebActivity" android:exported="true" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <!-- Open .hj files by name (file managers, downloads) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="content"/>
+                <data android:scheme="file"/>
+                <data android:host="*"/>
+                <data android:mimeType="*/*"/>
+                <data android:pathPattern=".*\\.hj"/>
+                <data android:pathPattern=".*\\..*\\.hj"/>
+                <data android:pathPattern=".*\\..*\\..*\\.hj"/>
+                <data android:pathPattern=".*\\..*\\..*\\..*\\.hj"/>
+                <data android:pathPattern=".*\\.HJ"/>
+                <data android:pathPattern=".*\\..*\\.HJ"/>
+                <data android:pathPattern=".*\\..*\\..*\\.HJ"/>
+                <data android:pathPattern=".*\\..*\\..*\\..*\\.HJ"/>
+                <data android:pathPattern=".*\\.Hj"/>
+                <data android:pathPattern=".*\\..*\\.Hj"/>
+                <data android:pathPattern=".*\\..*\\..*\\.Hj"/>
+                <data android:pathPattern=".*\\..*\\..*\\..*\\.Hj"/>
+                <data android:pathPattern=".*\\.hJ"/>
+                <data android:pathPattern=".*\\..*\\.hJ"/>
+                <data android:pathPattern=".*\\..*\\..*\\.hJ"/>
+                <data android:pathPattern=".*\\..*\\..*\\..*\\.hJ"/>
+            </intent-filter>
+            <!-- Open .hj files by type (WhatsApp, Gmail, downloads that hide the file name) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="content"/>
+                <data android:scheme="file"/>
+                <data android:mimeType="application/x-hj"/>
+                <data android:mimeType="application/vnd.juanvpn.hj"/>
+                <data android:mimeType="application/octet-stream"/>
+            </intent-filter>
+            <!-- Share to JUAN VPN -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="application/x-hj"/>
+                <data android:mimeType="application/vnd.juanvpn.hj"/>
+                <data android:mimeType="application/octet-stream"/>
             </intent-filter>
         </activity>
         <service android:name=".JuanVpnService" android:permission="android.permission.BIND_VPN_SERVICE" android:exported="false" android:foregroundServiceType="specialUse">
