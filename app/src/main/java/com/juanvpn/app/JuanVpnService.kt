@@ -27,7 +27,7 @@ object JuanBus {
         appContext = context.applicationContext
         synchronized(logs) {
             if (logs.isEmpty()) {
-                logs.addAll(AppLog.read(context).lineSequence().filter { it.isNotBlank() }.takeLast(400))
+                logs.addAll(AppLog.read(context).lineSequence().filter { it.isNotBlank() }.toList().takeLast(400))
             }
         }
     }
