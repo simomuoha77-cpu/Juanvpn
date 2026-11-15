@@ -1,0 +1,12 @@
+name = "juan-cloud"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+# Run:  wrangler d1 create juan-cloud   then paste the database_id below.
+[[d1_databases]]
+binding = "DB"
+database_name = "juan-cloud"
+database_id = "PASTE-YOUR-D1-DATABASE-ID"
+
+[vars]
+NORMAL_TTL_DAYS = "180"

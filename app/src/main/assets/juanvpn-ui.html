@@ -47,7 +47,13 @@ input.sw:checked{background:var(--ac2)}input.sw:checked::after{left:23px;backgro
 .stats{display:grid;grid-template-columns:1fr 1fr 1fr;border-top:1px solid var(--ln)}
 .stats div{padding:12px 14px;border-right:1px solid var(--ln);border-bottom:1px solid var(--ln)}.stats div:nth-child(3n){border-right:0}.stats div:nth-last-child(-n+3){border-bottom:0}
 .stats b{display:block;font-size:15px;font-variant-numeric:tabular-nums}.stats small{color:var(--mu);font-size:11.5px}
-.ll{display:block}.ll.bad{color:var(--bad)}.ll.ok{color:var(--ok)}.ll.warn{color:var(--warn)}.badge.bad{color:var(--warn)}
+.fabwrap{position:fixed;right:16px;bottom:calc(18px + env(safe-area-inset-bottom,0px));z-index:30;display:flex;flex-direction:column;align-items:flex-end;gap:12px}
+.fab{width:58px;height:58px;border-radius:50%;border:0;background:#1f7ae0;color:#fff;font-size:24px;box-shadow:0 4px 14px #000a;cursor:pointer}
+.fabitems{display:none;flex-direction:column;align-items:flex-end;gap:12px}.fabwrap.open .fabitems{display:flex}
+.fi{display:flex;align-items:center;gap:10px;cursor:pointer}.fi span{background:#1b2536;border:1px solid var(--ln);padding:7px 13px;border-radius:9px;font-size:13px;font-weight:600}
+.fi button{width:48px;height:48px;border-radius:50%;border:0;background:#1f7ae0;color:#fff;font-size:20px;cursor:pointer}
+.cf{display:flex;align-items:center;gap:8px;margin:0 0 10px}.cf input{flex:1;min-width:0;font:600 14px ui-monospace,Menlo,monospace}.cf button{width:42px;height:42px;border-radius:10px;border:1px solid var(--ln);background:var(--s2);font-size:18px;cursor:pointer}
+.cf label{display:block}.ll{display:block}.ll.bad{color:var(--bad)}.ll.ok{color:var(--ok)}.ll.warn{color:var(--warn)}.badge.bad{color:var(--warn)}
 .err{color:var(--bad);font-size:13px;padding:0 16px 14px}
 pre{margin:0;padding:14px 16px;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-all;color:#cfe0f5;min-height:120px;max-height:55vh;overflow:auto}
 .pv{margin:0 16px 14px;border:1px dashed var(--ln);border-radius:10px;padding:10px 12px;font:12px/1.5 ui-monospace,Menlo,monospace;color:#b9c8e0;word-break:break-all;background:#0b1424}
@@ -73,7 +79,7 @@ details{border-top:1px solid var(--ln);padding:12px 16px}details:first-of-type{b
 <header><div class="bar"><button class="ib" id="lead" aria-label="Menu"></button><h1 id="ttl">JUAN VPN</h1><button class="ib" id="gear" aria-label="Settings"></button><button class="ib" id="quick" aria-label="Config actions" title="Config actions"></button></div><nav class="tabs" id="tabs"></nav></header>
 <main id="v"></main><input type="file" id="fi" accept=".hj,.HJ,.json,application/json" hidden><div id="md"><div class="sheet" id="sh"></div></div><div id="toast"></div>
 <script>
-const VER='2.3.3',$=s=>document.querySelector(s);
+const VER='2.4.0',$=s=>document.querySelector(s);
 const I={menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',back:'<path d="M15 5l-7 7 7 7"/>',gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',plus:'<path d="M12 5v14M5 12h14"/>',ch:'<path d="M9 5l7 7-7 7"/>',ed:'<path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/>'};
 const ic=(n,c='')=>`<svg class="${c}" viewBox="0 0 24 24">${I[n]}</svg>`;
 const SECRET=['pass','key','keyPass','pPass','xSecret'];
@@ -207,7 +213,7 @@ apps(){return card('Mode',`<div class="fld"><select data-k="appMode" data-re><op
 settings(){return card('Device',go('deviceid',['Device ID',deviceId()]))+card('Tunnel',go('tunnel',[XN[S.tunnel],sum()])+go('ssh',['SSH server','Host, auth, host key'])+go('xserver',['V2Ray / Shadowsocks server','Address, UUID or password, transport'])+go('dns',['DNS and routing','']))
 +card('Reliability',sw('Auto reconnect','reconnect','',1)+(S.reconnect?f('Delay (seconds)','delay',{m:'numeric'})+f('Max retries','retries',{m:'numeric',h:'Stops early on bad credentials or an unreachable server.'}):'')+sw('CPU wake lock','wake','Fewer drops with the screen off. Uses more battery.')+`<button class="row" data-act="batt"><div class="t"><b>Battery optimization</b><small>Exempt JUAN VPN so it stays alive</small></div>${ic('ch','ch')}</button>`)
 +card('Notifications',`<button class="row" data-act="notif"><div class="t"><b>Allow notifications</b><small>Needed for the Disconnect action on Android 13+</small></div>${ic('ch','ch')}</button>`)
-+card('Cloud HJ uploads',`<div class="fld"><label>HTTPS upload endpoint</label><input id="cloudEndpoint" type="url" value="${esc(localStorage.getItem('juan.cloudEndpoint')||'')}" placeholder="https://your-worker.example/upload"><div class="h">Endpoint must accept POST JSON {filename, content, format} and return JSON {url}. Configure your own upload service.</div></div><button class="btn pri" data-act="saveCloudEndpoint">Save endpoint</button>`)},
++card('Cloud server',`<div class="fld"><label>Your JUAN cloud server (https)</label><input id="cloudEndpoint" type="url" value="${esc(localStorage.getItem('juan.cloudEndpoint')||'')}" placeholder="https://juan-cloud.yourname.workers.dev" autocapitalize="off" spellcheck="false"><div class="h">Used by Save to cloud and by Import from cloud key. Deploy the server from the cloud-server folder (see its README).</div></div><div class="btns" style="padding:0 16px 14px;border:0"><button class="btn sm pri" data-act="saveCloudEndpoint">Save</button><button class="btn sm" data-act="pingCloud">Test server</button></div>`)},
 
 deviceid(){const id=deviceId();const sim=B()&&B().simOperator?B().simOperator():'';
 return card('Your Device ID',`<div class="fld"><div style="font:600 20px/1.3 ui-monospace,Menlo,monospace;letter-spacing:.5px;word-break:break-all;color:var(--ac)">${esc(id)}</div><div class="h">Give this ID to the person who owns the config so they can lock it to your phone.</div></div><div class="btns"><button class="btn sm pri" data-act="copyId">Copy</button><button class="btn sm" data-act="shareId">Share</button></div>`)
@@ -238,11 +244,12 @@ return card('Config file',hf('Config file name (saved as .HJ)','fileName')+`<div
 +hc('Gaming mode (only games use VPN)','gamingMode','Only installed game apps are routed through the VPN.')
 +`<div class="note" style="padding:10px 16px">These checks run inside the app. They stop normal users but cannot stop someone who modifies the APK; use server-side limits for anything sensitive.</div>`)
 +card('Message / Notes for users',`<div class="fld"><textarea data-hj="notes" placeholder="Optional instructions for users">${esc(HJ.notes)}</textarea></div>`)
-+card('Save HJ config',`<div class="btns" style="flex-direction:column"><button class="btn pri" data-act="saveHJ">Save .HJ</button><button class="btn" data-act="saveBothHJ">Save locked & unlocked</button><button class="btn" data-act="shareHJ">Save & share</button><button class="btn" data-act="saveCloudHJ">Upload to cloud and get link</button><button class="btn" data-act="importHJ">Import .HJ</button></div><div class="note">Locked files use PBKDF2-HMAC-SHA256 and AES-256-GCM authenticated encryption. Keep the password separate from the file. Unlocked exports contain readable configuration data. Client-side locks cannot make a modified APK impossible; sensitive enforcement needs server-side verification.</div>`)
++card('Save HJ config',`<div class="btns" style="flex-direction:column"><button class="btn pri" data-act="xSave">Save .HJ</button><button class="btn" data-act="xBoth">Save locked & unlocked</button><button class="btn" data-act="xShare">Save & share</button><button class="btn" data-act="xCloud">Save to cloud (link + key)</button><button class="btn" data-act="cloudImport">Import from cloud key</button><button class="btn" data-act="importHJ">Import .HJ file</button></div><div class="note">Locked files use PBKDF2-HMAC-SHA256 and AES-256-GCM authenticated encryption. Keep the password separate from the file. Cloud uploads are encrypted on your phone before they leave it. Unlocked exports contain readable configuration data. Client-side locks cannot make a modified APK impossible; sensitive enforcement needs server-side verification.</div>`)
++'<div style="height:90px"></div>'+`<div class="fabwrap"><div class="fabitems"><div class="fi" data-act="xCloud"><span>Save to cloud</span><button>☁</button></div><div class="fi" data-act="xSave"><span>Save</span><button>💾</button></div><div class="fi" data-act="xBoth"><span>Save locked & unlocked</span><button>⧉</button></div><div class="fi" data-act="xShare"><span>Save & Share</span><button>⤴</button></div></div><button class="fab" data-act="fab">⤓</button></div>`
 },
 servers(){let L=[];try{L=JSON.parse(localStorage.getItem('juan.l')||'[]')}catch(e){}
 return card('Saved profiles',L.length?L.map((p,i)=>`<div class="ap"><div class="t"><b>${esc(p.name)}</b><small>${p._hjLocked?'Locked configuration':esc(p.user||'')+'@'+esc(p.sshHost||'')+':'+esc(p.sshPort||'')}</small></div><button class="btn sm" data-use="${i}">Use</button><button class="btn sm bad" data-del="${i}">Delete</button></div>`).join(''):'<div class="fld"><div class="h" style="margin:0">No saved profiles yet.</div></div>')
-+card('Manage',`<div class="btns"><button class="btn sm pri" data-act="saveP">Save current profile</button></div>`)
++card('Manage',`<div class="btns"><button class="btn sm pri" data-act="saveP">Save current profile</button> <button class="btn sm" data-act="cloudImport">Import from cloud key</button></div>`)
 +'<div class="note">Use Config exporter to create encrypted .HJ files. Legacy JSON exports omit credentials.</div>'},
 
 log(){return card('Connection log',`<pre>${logHtml()}</pre><div class="btns"><button class="btn sm pri" data-act="rl">Refresh</button><button class="btn sm" data-act="cl">Copy</button><button class="btn sm" data-act="xl">Export</button><button class="btn sm" data-act="nl">Native log</button><button class="btn sm bad" data-act="clr">Clear</button></div>`)+'<div class="note">Passwords, keys and tokens are never written to the log.</div>'},
@@ -328,6 +335,34 @@ if(box.format!=='JUAN-HJ')throw Error('Unsupported HJ file format');
 if(box.locked){pendingHJText=text;modal(`<h2>Unlock JUAN HJ config</h2><p>This file is encrypted. Enter the password supplied by the config owner.</p><div class="fld" style="padding:8px 0"><label>Config password</label><input id="hjImportPassword" type="password" autocomplete="off"></div><div class="btns"><button class="btn" data-act="mdclose">Cancel</button><button class="btn pri" data-act="decryptHJ">Unlock & import</button></div>`)}
 else {const raw=B()&&B().openHJ?B().openHJ(text,''):box.config;if(String(raw).startsWith('ERROR:'))throw Error(String(raw).slice(6));applyHJConfig(typeof raw==='string'?JSON.parse(raw):raw,false)}
 }
+/* ---- cloud export / import ---- */
+const reqs={};let pendingKind='saveHJ';
+const cloudServer=()=>{const v=(localStorage.getItem('juan.cloudEndpoint')||'').trim();try{return v?new URL(v).origin:''}catch(e){return''}};
+const yn=v=>v?'✔':'✖';
+function exportSummary(){
+let tt;if(S.tunnel==='ssh')tt=`${FROM[S.from]||S.from} → SSH${S.custom&&PAY.includes(S.from)?' (Custom Payload)':''}`;else tt=`${XN[S.tunnel]} (${S.tunnel==='ss'?'Shadowsocks':S.xProto.toUpperCase()}${S.xNet==='ws'?' + WebSocket':''}${S.xTls?' + TLS':''})`;
+const dns=S.dnsMode==='auto'?'Automatic':({'1.1.1.1':'Cloudflare DNS','1.0.0.1':'Cloudflare DNS','8.8.8.8':'Google DNS','8.8.4.4':'Google DNS','9.9.9.9':'Quad9 DNS'}[String(S.dns1).trim()]||(S.dns1||'Custom DNS'));
+const routes=!S.defRoute||(S.appMode&&S.appMode!=='off'&&(S.apps||[]).length>0);
+const rows=[['Tunnel Type',tt]];
+if(S.tunnel==='ssh'){rows.push(['SSH Port',S.sshPort]);rows.push(['SSH Private Key',yn(!!S.key)])}else rows.push(['Server Port',S.xPort]);
+rows.push(['DNS Type',dns]);
+return rows.map(r=>`<p><b>${esc(r[0])}:</b> ${esc(r[1])}</p>`).join('')+`<p style="margin-top:14px"><b>Custom Routes Enabled:</b> ${yn(routes)}</p>`}
+function exportConfirm(kind){pendingKind=kind;modal(`<h2>Export config</h2>${exportSummary()}<div class="btns" style="margin-top:14px"><button class="btn" data-act="mdclose">Cancel</button><button class="btn pri" data-act="doExport">Export Config</button></div>`)}
+function cloudOptions(){const r=(v,t,sub,ck)=>`<label class="row"><input type="radio" name="cm" value="${v}" ${ck?'checked':''} onchange="document.getElementById('cmDate').style.display=this.value==='expiry'?'block':'none'"><div class="t"><b>${t}</b>${sub?`<small style="white-space:normal">${sub}</small>`:''}</div></label>`;
+modal(`<h2>Save to cloud</h2>${r('normal','Normal','Stays on the server until you remove it.',1)}${r('burn','Burn after import','Deleted from the server after the first import.')}${r('expiry','Set Expiry Date','Deleted from the server after this date.')}<div class="fld" id="cmDate" style="display:none"><label>Available through the end of</label><input type="date" id="cloudDate"></div><div class="btns" style="margin-top:12px"><button class="btn" data-act="mdclose">Cancel</button><button class="btn pri" data-act="cloudGo">Export Config</button></div>`)}
+function copyText(t,msg){if(B()&&B().copyText){B().copyText(t);toast(msg||'Copied')}else if(navigator.clipboard?.writeText)navigator.clipboard.writeText(t).then(()=>toast(msg||'Copied'),()=>toast('Copy failed'));else toast('Copy failed')}
+function copyField(id){copyText(document.getElementById(id).value,'Copied')}
+function cloudResultModal(r){const f=(ic,id,v)=>`<div class="cf"><input id="${id}" readonly value="${esc(v)}" aria-label="${ic}"><button onclick="copyField('${id}')">⧉</button></div>`;
+window._cloudAll=`${r.link}\n\n${r.key}\n\n${r.emoji}\n\n${r.uri}`;
+modal(`<h2>Cloud Config Key</h2><div class="h" style="margin:0 0 4px">Link</div>${f('link','cfLink',r.link)}<div class="h" style="margin:0 0 4px">Key</div>${f('key','cfKey',r.key)}<div class="h" style="margin:0 0 4px">Emoji key</div>${f('emoji','cfEmoji',r.emoji)}<div class="h" style="margin:0 0 4px">App link (tap opens JUAN VPN)</div>${f('uri','cfUri',r.uri)}<div class="btns"><button class="btn" data-act="mdclose">OK</button><button class="btn" onclick="B().shareText&&B().shareText(window._cloudAll)">Share</button><button class="btn pri" onclick="copyText(window._cloudAll,'Copied')">Copy</button></div>`)}
+function cloudFetchStart(input){try{if(!B()||!B().cloudFetch)throw Error('Cloud import is available only in the Android app');if(!String(input).trim())throw Error('Paste a link, key or emoji key');const id='d'+Date.now();reqs[id]='dl';toast('Fetching config…');B().cloudFetch(id,cloudServer(),String(input))}catch(e){toast(e.message)}}
+JuanUI.cloudResult=(id,t)=>{const kind=reqs[id];delete reqs[id];let r;try{r=JSON.parse(t)}catch(e){toast('Cloud error');return}
+if(kind==='ping'){toast(r.ok?r.text:r.error);return}
+if(!r.ok){toast(r.error||'Cloud request failed');log('Cloud: '+(r.error||'failed'));return}
+if(kind==='up'){clearHJPassword();cloudResultModal(r);log('Cloud: config uploaded')}
+else if(kind==='dl'){unmodal();JuanUI.importFile(r.text)}};
+JuanUI.cloudImportLink=u=>{nav('servers');cloudFetchStart(u)};
+
 const ACT={
 copyId(){B()&&B().copyText?(B().copyText(deviceId()),toast('Device ID copied')):toast('Available inside the Android app')},
 shareId(){B()&&B().shareText?B().shareText('My JUAN VPN Device ID: '+deviceId()):toast('Available inside the Android app')},
@@ -358,10 +393,18 @@ importHJ(){unmodal();B()&&B().chooseImport?B().chooseImport():$('#fi').click()},
 saveHJ(){try{const locked=!!HJ.lockConfig;const text=makeHJText(locked);clearHJPassword();dl(hjName(),text,'application/octet-stream');toast('Choose a location to save your .HJ file')}catch(e){toast(e.message)}},
 saveBothHJ(){try{if(!HJ.lockConfig){HJ.lockConfig=true;saveHJ();render();toast('Set a password, then tap Save locked & unlocked again');return}const unlocked=makeHJText(false),locked=makeHJText(true);clearHJPassword();if(!B()||!B().exportFiles)throw Error('Save both is available only in the Android app');B().exportFiles(hjName('-unlocked'),unlocked,hjName('-locked'),locked);toast('Choose where to save each .HJ file')}catch(e){toast(e.message)}},
 shareHJ(){try{const text=makeHJText(!!HJ.lockConfig);clearHJPassword();if(!B()||!B().shareFile)throw Error('Sharing is available only in the Android app');B().shareFile(hjName(),text)}catch(e){toast(e.message)}},
-saveCloudEndpoint(){const v=($('#cloudEndpoint')?.value||'').trim();if(!v){localStorage.removeItem('juan.cloudEndpoint');toast('Cloud endpoint cleared');return}try{const u=new URL(v);if(u.protocol!=='https:')throw Error('Use an HTTPS endpoint');localStorage.setItem('juan.cloudEndpoint',u.href);toast('Cloud endpoint saved')}catch(e){toast(e.message||'Invalid endpoint')}},
-saveCloudHJ(){(async()=>{try{const endpoint=(localStorage.getItem('juan.cloudEndpoint')||'').trim();if(!endpoint)throw Error('Add your HTTPS upload endpoint in Settings first');const u=new URL(endpoint);if(u.protocol!=='https:')throw Error('Cloud endpoint must use HTTPS');const text=makeHJText(!!HJ.lockConfig);const response=await fetch(u.href,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:hjName(),content:text,format:'JUAN-HJ'})});if(!response.ok)throw Error('Upload failed: HTTP '+response.status);const data=await response.json();const link=String(data.url||'');const parsed=new URL(link);if(parsed.protocol!=='https:')throw Error('Upload service did not return a valid HTTPS share link');clearHJPassword();modal(`<h2>Cloud upload complete</h2><div class="fld"><label>Share link</label><input id="hjCloudLink" readonly value="${esc(parsed.href)}"></div><div class="btns"><button class="btn pri" data-act="copyCloudLink">Copy link</button><button class="btn" data-act="openCloudLink">Open link</button></div>`)}catch(e){toast(e.message||'Cloud upload failed')}})()},
-copyCloudLink(){const v=$('#hjCloudLink')?.value||'';if(!v){toast('No share link');return}if(!navigator.clipboard?.writeText){toast('Clipboard unavailable');return}navigator.clipboard.writeText(v).then(()=>toast('Link copied'),()=>toast('Copy failed'))},
-openCloudLink(){const v=$('#hjCloudLink')?.value||'';if(v)window.open(v,'_blank','noopener')},
+saveCloudEndpoint(){const v=($('#cloudEndpoint')?.value||'').trim();if(!v){localStorage.removeItem('juan.cloudEndpoint');toast('Cloud server cleared');return}try{const u=new URL(/^https?:\/\//i.test(v)?v:'https://'+v);if(u.protocol!=='https:')throw Error('Use an https address');localStorage.setItem('juan.cloudEndpoint',u.origin);$('#cloudEndpoint').value=u.origin;toast('Cloud server saved')}catch(e){toast(e.message||'Invalid address')}},
+pingCloud(){try{const srv=cloudServer();if(!srv)throw Error('Save your cloud server first');if(!B()||!B().cloudPing)throw Error('Available only in the Android app');const id='p'+Date.now();reqs[id]='ping';toast('Testing…');B().cloudPing(id,srv)}catch(e){toast(e.message)}},
+fab(){const f=document.querySelector('.fabwrap');if(f)f.classList.toggle('open')},
+xSave(){exportConfirm('saveHJ')},xBoth(){exportConfirm('saveBothHJ')},xShare(){exportConfirm('shareHJ')},
+saveCloudHJ(){cloudOptions()},xCloud(){cloudOptions()},
+doExport(){unmodal();ACT[pendingKind]()},
+cloudGo(){try{const mode=(document.querySelector('input[name=cm]:checked')||{}).value||'normal';let exp=0;
+if(mode==='expiry'){const d=$('#cloudDate').value;if(!/^\d{4}-\d{2}-\d{2}$/.test(d))throw Error('Choose an expiry date');exp=new Date(d+'T23:59:59').getTime();if(!(exp>Date.now()))throw Error('Expiry date must be in the future')}
+const srv=cloudServer();if(!srv)throw Error('Set your cloud server in Settings first');if(!B()||!B().cloudUpload)throw Error('Cloud upload is available only in the Android app');
+const text=makeHJText(!!HJ.lockConfig);const id='u'+Date.now();reqs[id]='up';toast('Uploading…');B().cloudUpload(id,srv,text,mode,Math.floor(exp/1000))}catch(e){toast(e.message)}},
+cloudImport(){modal(`<h2>Import from cloud</h2><p>Paste a cloud link, the key, or the emoji key.</p><div class="fld" style="padding:8px 0"><textarea id="cloudIn" spellcheck="false" autocapitalize="off" placeholder="https://…/pbEw2URa  or  pbEw2URa  or emoji key" style="min-height:70px"></textarea></div><div class="btns"><button class="btn" data-act="mdclose">Cancel</button><button class="btn pri" data-act="cloudFetchGo">Import</button></div>`)},
+cloudFetchGo(){cloudFetchStart($('#cloudIn')?.value||'')},
 decryptHJ(){try{const pw=$('#hjImportPassword')?.value||'';if(!B()||!B().openHJ)throw Error('HJ decryption is available only in the Android app');const raw=B().openHJ(pendingHJText,pw);if(String(raw).startsWith('ERROR:'))throw Error(String(raw).slice(6));pendingHJText='';unmodal();applyHJConfig(JSON.parse(raw),true)}catch(e){toast(e.message)}}};
 const pub=()=>{const c={...S};SECRET.forEach(k=>delete c[k]);return c};
 function dl(n,t,m){if(B()&&B().exportFile){B().exportFile(n,t);return}const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:m}));a.download=n;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4000)}

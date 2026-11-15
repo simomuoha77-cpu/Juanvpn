@@ -74,3 +74,12 @@ Fixes the VMess AEAD response-header KDF inputs: response-header keys are derive
 - Unlocked `.HJ` exports are intentionally readable and should be shared only when that is intended.
 - Device attestation, root/Play Store/device-ID checks, expiry, operator lock, torrent filtering, gaming-only routing, Hysteria and DNSTT are metadata-only in this revision; they are not represented as active enforcement or working tunnel protocols.
 - Client-side encryption protects locked config files, but cannot make an Android APK impossible to reverse engineer, patch or repackage. Strong app-integrity enforcement requires a private release-signing key and server-side verification (for example, Play Integrity).
+
+
+## Version 2.4.0: Save to cloud (link + key + emoji key)
+
+- **Config exporter** now has the floating menu (Save to cloud, Save, Save locked & unlocked, Save & Share) and an export summary dialog before saving.
+- **Save to cloud** offers Normal, Burn after import and Set Expiry Date, then shows the cloud link, the 8-character key, the emoji key and a `juanvpn://import?...` app link, each with a copy button.
+- **Import from cloud key** (Servers screen, exporter, or by tapping the link page / `juanvpn://` link) accepts the link, the key or the emoji key.
+- Configs are encrypted on the phone (AES-256-GCM, key derived from the cloud key). The server stores only ciphertext under a hashed token.
+- **You need your own server**: deploy `cloud-server/` (Cloudflare Worker + D1, free plan). See `cloud-server/README.md`. Set its address in Settings -> Cloud server, then tap Test server.

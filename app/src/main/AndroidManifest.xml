@@ -79,6 +79,13 @@
                 <data android:mimeType="application/vnd.juanvpn.hj"/>
                 <data android:mimeType="application/octet-stream"/>
             </intent-filter>
+            <!-- juanvpn://import?key=...&server=... cloud links -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="juanvpn" android:host="import"/>
+            </intent-filter>
             <!-- Share to JUAN VPN -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND"/>

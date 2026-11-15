@@ -32,6 +32,7 @@ class JuanWebActivity : Activity() {
     private var pageReady = false
     private var pendingImport: String? = null
     private var pendingImportError: String? = null
+    private var pendingCloud: String? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(b: Bundle?) {
@@ -73,6 +74,14 @@ class JuanWebActivity : Activity() {
     /** Opens a .hj file chosen from a file manager, chat app or share sheet. */
     private fun handleIntent(i: Intent?) {
         if (i == null) return
+        // juanvpn://import?key=...&server=...  (tapped from the cloud link page or shared as text)
+        if (i.action == Intent.ACTION_VIEW && i.data?.scheme.equals("juanvpn", true)) {
+            pendingCloud = i.data.toString()
+            JuanBus.log("Cloud link opened")
+            setIntent(Intent())
+            flushImport()
+            return
+        }
         val uri: Uri? = when (i.action) {
             Intent.ACTION_VIEW -> i.data
             Intent.ACTION_SEND -> if (Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
@@ -104,6 +113,7 @@ class JuanWebActivity : Activity() {
         if (!pageReady) return
         pendingImport?.let { pendingImport = null; js("JuanUI.importFile(${q(it)})") }
         pendingImportError?.let { pendingImportError = null; js("JuanUI.importError(${q(it)})") }
+        pendingCloud?.let { pendingCloud = null; js("JuanUI.cloudImportLink(${q(it)})") }
     }
 
     @Deprecated("Deprecated in Java")
@@ -295,6 +305,20 @@ class JuanWebActivity : Activity() {
                 startActivity(Intent.createChooser(send, "Share JUAN HJ config"))
             } catch (e: Exception) { JuanBus.log("Share failed: ${e.message}") }
         }
+        @JavascriptInterface fun cloudUpload(reqId: String, server: String, hjText: String, mode: String, expiresSec: Long) { Thread {
+            val r = try { JSONObject(JuanCloud.upload(server, hjText, mode, expiresSec)).put("ok", true) }
+                catch (e: Exception) { JSONObject().put("ok", false).put("error", e.message ?: e.javaClass.simpleName) }
+            JuanBus.log(if (r.optBoolean("ok")) "Cloud: config uploaded ($mode)" else "Cloud: upload failed: ${r.optString("error")}")
+            js("JuanUI.cloudResult(${q(reqId)},${q(r.toString())})") }.start() }
+        @JavascriptInterface fun cloudFetch(reqId: String, server: String, input: String) { Thread {
+            val r = try { JSONObject().put("ok", true).put("text", JuanCloud.fetch(server, input)) }
+                catch (e: Exception) { JSONObject().put("ok", false).put("error", e.message ?: e.javaClass.simpleName) }
+            JuanBus.log(if (r.optBoolean("ok")) "Cloud: config downloaded" else "Cloud: download failed: ${r.optString("error")}")
+            js("JuanUI.cloudResult(${q(reqId)},${q(r.toString())})") }.start() }
+        @JavascriptInterface fun cloudPing(reqId: String, server: String) { Thread {
+            val r = try { JSONObject().put("ok", true).put("text", JuanCloud.ping(server)) }
+                catch (e: Exception) { JSONObject().put("ok", false).put("error", e.message ?: e.javaClass.simpleName) }
+            js("JuanUI.cloudResult(${q(reqId)},${q(r.toString())})") }.start() }
         @JavascriptInterface fun listApps() { Thread {
             val pm = packageManager
             val l = pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
