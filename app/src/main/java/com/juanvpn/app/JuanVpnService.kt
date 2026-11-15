@@ -38,6 +38,11 @@ object JuanBus {
     @Volatile var pendingHK: Triple<String, String, String>? = null
     @Volatile var answer = false
     @Volatile var latch: java.util.concurrent.CountDownLatch? = null
+    @Synchronized fun addSilent(m: String) {
+        val l = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date()) + "  " + m
+        synchronized(logs) { logs.add(l); while (logs.size > 400) logs.removeAt(0) }
+        appContext?.let { AppLog.write(it, m) }
+    }
     @Synchronized fun log(m: String) {
         val l = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date()) + "  " + m
         synchronized(logs) {
@@ -61,7 +66,7 @@ object TunEngine {
         cfg.writeText(
             "tunnel:\n  mtu: 1500\n  ipv4: 10.10.10.2\nsocks5:\n  port: $socksPort\n  address: 127.0.0.1\n" +
             "mapdns:\n  address: $DNS\n  port: 53\n  network: 100.64.0.0\n  netmask: 255.192.0.0\n  cache-size: 10000\n" +
-            "misc:\n  task-stack-size: 20480\n  connect-timeout: 5000\n  read-write-timeout: 60000\n  log-level: warn\n"
+            "misc:\n  task-stack-size: 20480\n  connect-timeout: 5000\n  read-write-timeout: 60000\n  log-level: info\n"
         )
         JuanBus.log("TUN: loading native library")
         val k = try { Class.forName(CLS) } catch (_: ClassNotFoundException) {
@@ -92,6 +97,7 @@ class JuanVpnService : VpnService() {
 
     private var engine: JuanSshEngine? = null
     private var tun: ParcelFileDescriptor? = null
+    @Volatile private var tunFd = -1
     private var worker: Thread? = null
     private val sched = Executors.newSingleThreadScheduledExecutor()
     private var statsJob: ScheduledFuture<*>? = null
@@ -142,10 +148,13 @@ class JuanVpnService : VpnService() {
             if (stopping || Thread.currentThread().isInterrupted) { e.stop(); return }
             post("CONNECTING", "Starting TUN", "")
             val pfd = build(c) ?: throw IllegalStateException("VPN permission missing or revoked")
-            tun = pfd
+            tunFd = pfd.detachFd()   // native code may close it; Java must not double-close (fdsan)
             if (stopping || Thread.currentThread().isInterrupted) return
             JuanBus.log("TUN: interface up, starting native engine")
-            TunEngine.start(this, pfd.fd, e.socksPort)
+            TunEngine.start(this, tunFd, e.socksPort)
+            JuanBus.log("TUN: native engine called")
+            Thread.sleep(700)
+            if (!tunIsOpen(tunFd)) throw IllegalStateException("The TUN engine stopped right after starting. Open Log and tap Native log for details.")
             JuanBus.log("TUN: packet engine started")
             post("CONNECTING", "Checking tunnel", "")
             JuanBus.log("Tunnel: running traffic check")
@@ -213,12 +222,21 @@ class JuanVpnService : VpnService() {
         getSystemService(NotificationManager::class.java).notify(NID, notif(if (e.isNotEmpty()) e else s.lowercase().replaceFirstChar { it.uppercase() } + if (d.isNotEmpty()) " · $d" else ""))
     }
 
+    private fun tunIsOpen(fd: Int): Boolean = fd >= 0 && try {
+        android.system.Os.readlink("/proc/self/fd/$fd").contains("tun")
+    } catch (_: Throwable) { false }
+
+    private fun closeTun() {
+        val fd = tunFd; tunFd = -1
+        if (tunIsOpen(fd)) try { ParcelFileDescriptor.adoptFd(fd).close() } catch (_: Throwable) {}
+    }
+
     @Synchronized private fun teardown() {
         stopping = true
         statsJob?.cancel(true); statsJob = null
         // Stop the native engine only after a successful native start.
         TunEngine.stop()
-        try { tun?.close() } catch (_: Exception) {}; tun = null
+        closeTun()
         try { engine?.stop() } catch (e: Exception) { JuanBus.log("SSH cleanup warning: ${e.message}") }
         engine = null
         worker?.takeIf { it !== Thread.currentThread() }?.interrupt()

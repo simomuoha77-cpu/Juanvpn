@@ -19,6 +19,7 @@ import org.json.JSONObject
 
 class JuanWebActivity : Activity() {
     private lateinit var web: WebView
+    private var sent = 0
     private var pending: String? = null
     private var exportText: String? = null
     private var waitingForNotification = false
@@ -30,6 +31,9 @@ class JuanWebActivity : Activity() {
         JuanBus.init(applicationContext)
         JuanCrash.install(this)
         JuanCrash.report(this)?.let { JuanBus.log(it) }
+        val lastLine = synchronized(JuanBus.logs) { JuanBus.logs.lastOrNull().orEmpty() }
+        if (lastLine.contains("TUN") || lastLine.contains("Checking tunnel"))
+            Thread { JuanBus.log("Native log from the last run:\n" + JuanCrash.nativeTail()) }.start()
         web = WebView(this).apply {
             setBackgroundColor(0xff0a111f.toInt())
             settings.javaScriptEnabled = true; settings.domStorageEnabled = true
@@ -60,11 +64,13 @@ class JuanWebActivity : Activity() {
             if (s == "CONNECTED" || s == "ERROR" || s == "DISCONNECTED") connectionRequestInFlight = false
             js("JuanUI.setState(${q(s)},${q(d)},${q(e)})")
         }
-        JuanBus.onLog = { l -> js("JuanUI.log(${q(l)})") }
+        JuanBus.onLog = { l -> synchronized(this) { sent++ }; js("JuanUI.log(${q(l)})") }
         JuanBus.onStats = { o -> js("JuanUI.stats($o)") }
         JuanBus.onHostKey = { h, t, f -> js("JuanUI.hostKey(${q(h)},${q(t)},${q(f)})") }
         web.postDelayed({
-            JuanBus.logs.toList().forEach { js("JuanUI.log(${q(it)})") }
+            val snap = synchronized(JuanBus.logs) { JuanBus.logs.toList() }
+            val from = synchronized(this) { val f = sent.coerceAtMost(snap.size); sent = snap.size; f }
+            snap.drop(from).forEach { js("JuanUI.log(${q(it)})") }
             JuanBus.pendingHK?.let { js("JuanUI.hostKey(${q(it.first)},${q(it.second)},${q(it.third)})") }
             if (JuanBus.state != "DISCONNECTED") js("JuanUI.setState(${q(JuanBus.state)},${q(JuanBus.detail)},${q(JuanBus.error)})")
         }, 400)
@@ -148,7 +154,12 @@ class JuanWebActivity : Activity() {
             val label = if (port == "22") host else "[$host]:$port"
             getSharedPreferences("juan_trust", MODE_PRIVATE).edit().remove(label).apply()
         }
-        @JavascriptInterface fun appendUiLog(message: String) { AppLog.write(applicationContext, message) }
+        @JavascriptInterface fun appendUiLog(message: String) { JuanBus.addSilent(message); synchronized(this@JuanWebActivity) { sent++ } }
+        @JavascriptInterface fun nativeLog() { Thread { JuanBus.log("Native log:\n" + JuanCrash.nativeTail()) }.start() }
+        @JavascriptInterface fun clearLogs() {
+            AppLog.clear(applicationContext); synchronized(JuanBus.logs) { JuanBus.logs.clear() }
+            synchronized(this@JuanWebActivity) { sent = 0 }
+        }
         @JavascriptInterface fun readLogs(): String = AppLog.read(applicationContext)
         @JavascriptInterface fun loadSecrets(): String = JuanSecrets.load(applicationContext)
         @JavascriptInterface fun hostKeyAnswer(ok: Boolean) { JuanBus.answer = ok; JuanBus.latch?.countDown() }

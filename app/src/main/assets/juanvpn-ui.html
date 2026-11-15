@@ -90,9 +90,8 @@ const log=(m,persist=true)=>{const raw=String(m??'');const line=/^(\[?\d{2}:\d{2
 const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove('on'),2400)};
 
 /* native -> UI */
-window.JuanUI={hostKey(h,t,f){modal(`<h2>Trust this server?</h2><p>First connection to <b>${esc(h)}</b></p><p>Key type: ${esc(t)}</p><pre style="padding:10px 12px;min-height:0;background:#0b1424;border-radius:10px">${esc(f)}</pre><p>Compare this fingerprint with your server admin. If it differs, cancel.</p><div class="btns" style="padding:12px 0 0;border:0"><button class="btn sm pri" data-act="hkyes">Trust and connect</button><button class="btn sm bad" data-act="hkno">Cancel</button></div>`)},back(){if($('#md').classList.contains('on')){unmodal();return true}if(document.body.classList.contains('open')){document.body.classList.remove('open');return true}if(cur!=='home'){nav(PAR[cur]||'home');return true}return false},setState(s,d,e){ST={state:s,detail:d||'',error:e||(s==='ERROR'?ST.error:'')};if(e)log('Error: '+e,false);log('State: '+s+(d?' ('+d+')':''),false);render()},
+window.JuanUI={hostKey(h,t,f){modal(`<h2>Trust this server?</h2><p>First connection to <b>${esc(h)}</b></p><p>Key type: ${esc(t)}</p><pre style="padding:10px 12px;min-height:0;background:#0b1424;border-radius:10px">${esc(f)}</pre><p>Compare this fingerprint with your server admin. If it differs, cancel.</p><div class="btns" style="padding:12px 0 0;border:0"><button class="btn sm pri" data-act="hkyes">Trust and connect</button><button class="btn sm bad" data-act="hkno">Cancel</button></div>`)},back(){if($('#md').classList.contains('on')){unmodal();return true}if(document.body.classList.contains('open')){document.body.classList.remove('open');return true}if(cur!=='home'){nav(PAR[cur]||'home');return true}return false},setState(s,d,e){ST={state:s,detail:d||'',error:e||(s==='ERROR'?ST.error:'')};render()},
 stats(o){STAT=o||{};if(cur==='home')render()},log:m=>log(m,false),apps(a){appsList=a||[];if(cur==='apps')render()},toolResult(t){toolOut=t;if(cur==='tools')render()}};
-try{if(B()&&B().readLogs){const saved=B().readLogs();if(saved&&saved!=='No connection events yet.')LOG=saved.split('\\n').filter(Boolean).slice(-400)}}catch(e){}
 
 /* components */
 const go=(n,a='')=>`<button class="row" data-go="${n}"><div class="t"><b>${a[0]}</b><small>${esc(a[1]||'')}</small></div>${ic('ch','ch')}</button>`;
@@ -156,7 +155,7 @@ return card('Saved profiles',L.length?L.map((p,i)=>`<div class="ap"><div class="
 +card('Manage',`<div class="btns"><button class="btn sm pri" data-act="saveP">Save current</button><button class="btn sm" data-act="exportP">Export</button><button class="btn sm" data-act="importP">Import</button></div>`)
 +'<div class="note">Exports never include passwords or private keys.</div><input type="file" id="fi" accept=".json,application/json" hidden>'},
 
-log(){return card('Connection log',`<pre>${esc(LOG.length?LOG.join('\n'):'No events yet.')}</pre><div class="btns"><button class="btn sm pri" data-act="rl">Refresh</button><button class="btn sm" data-act="cl">Copy</button><button class="btn sm" data-act="xl">Export</button><button class="btn sm bad" data-act="clr">Clear</button></div>`)+'<div class="note">Passwords, keys and tokens are never written to the log.</div>'},
+log(){return card('Connection log',`<pre>${esc(LOG.length?LOG.join('\n'):'No events yet.')}</pre><div class="btns"><button class="btn sm pri" data-act="rl">Refresh</button><button class="btn sm" data-act="cl">Copy</button><button class="btn sm" data-act="xl">Export</button><button class="btn sm" data-act="nl">Native log</button><button class="btn sm bad" data-act="clr">Clear</button></div>`)+'<div class="note">Passwords, keys and tokens are never written to the log.</div>'},
 
 tools(){return card('Target',f('Host or IP','tHost',{ph:S.sshHost||'example.com'}))
 +card('Tests',[['dns','DNS lookup'],['reach','Server reachability'],['ssh','SSH port check'],['proxy','Proxy connectivity'],['tls','TLS handshake'],['ip','IP information'],['diag','Full diagnostics']].map(([k,l])=>`<button class="row" data-tool="${k}"><div class="t"><b>${l}</b></div>${ic('ch','ch')}</button>`).join(''))
@@ -193,7 +192,7 @@ if(B()&&B().connect)B().connect(JSON.stringify(S));else{ST={state:'ERROR',detail
 stop(){log('Disconnect requested');B()&&B().disconnect&&B().disconnect();ST={state:'DISCONNECTED',detail:'',error:''};render()},
 notif(){B()&&B().notifPerm?B().notifPerm():toast('Available inside the Android app')},
 batt(){B()&&B().batteryHelp?B().batteryHelp():toast('Available inside the Android app')},
-rl(){render()},clr(){LOG=[];render()},
+rl(){render()},clr(){LOG=[];B()&&B().clearLogs&&B().clearLogs();render()},nl(){B()&&B().nativeLog?B().nativeLog():toast('Available inside the Android app')},
 cl(){navigator.clipboard?.writeText(LOG.join('\n')).then(()=>toast('Logs copied'),()=>toast('Copy failed'))},
 xl(){dl('juanvpn-log.txt',LOG.join('\n'),'text/plain')},
 saveP(){let L=JSON.parse(localStorage.getItem('juan.l')||'[]');const c=pub();const i=L.findIndex(x=>x.name===c.name);i>=0?L[i]=c:L.push(c);localStorage.setItem('juan.l',JSON.stringify(L));toast('Profile saved');render()},

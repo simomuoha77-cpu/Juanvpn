@@ -19,6 +19,14 @@ object JuanCrash {
         }
     }
 
+    /** Own-process logcat lines (native aborts, fdsan, JNI, hev) from the previous run. */
+    fun nativeTail(): String = try {
+        val pr = ProcessBuilder("logcat", "-d", "-v", "threadtime", "-t", "1500").redirectErrorStream(true).start()
+        val lines = pr.inputStream.bufferedReader().readLines(); pr.destroy()
+        val key = Regex("fatal signal|sigsegv|sigabrt|sigbus|fdsan|abort|libc|hev|tproxy|androidruntime|unsatisfied|jni|dlopen|linker|juanvpn", RegexOption.IGNORE_CASE)
+        lines.filter { key.containsMatchIn(it) }.takeLast(45).joinToString("\n").ifBlank { "(no matching lines)" }
+    } catch (e: Throwable) { "logcat unavailable: ${e.message}" }
+
     fun report(c: Context): String? {
         val sb = StringBuilder()
         val f = File(c.filesDir, "crash.txt")
