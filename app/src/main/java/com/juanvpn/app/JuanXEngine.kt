@@ -280,6 +280,187 @@ private class SsIn(private val i: InputStream, private val cr: SsCrypto) : Input
     }
 }
 
+/* ---------------------------------------------------------------- VMess (AEAD, alterId 0, AES-128-GCM) */
+
+private object Vm {
+    fun md5(vararg parts: ByteArray): ByteArray { val m = MessageDigest.getInstance("MD5"); parts.forEach { m.update(it) }; return m.digest() }
+    fun sha256(b: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(b)
+
+    /** VMess AEAD KDF: nested HMAC-SHA256, each path element wraps the previous HMAC as its hash function. */
+    fun kdf(key: ByteArray, vararg path: ByteArray): ByteArray {
+        val keys = listOf("VMess AEAD KDF".toByteArray()) + path.toList()
+        fun h(level: Int, msg: ByteArray): ByteArray {
+            if (level == 0) return sha256(msg)
+            val k = keys[level - 1]
+            val kp = ByteArray(64).also { System.arraycopy(k, 0, it, 0, k.size) }
+            val ipad = ByteArray(64) { (kp[it].toInt() xor 0x36).toByte() }
+            val opad = ByteArray(64) { (kp[it].toInt() xor 0x5c).toByte() }
+            return h(level - 1, opad + h(level - 1, ipad + msg))
+        }
+        return h(keys.size, key)
+    }
+    fun kdf(key: ByteArray, vararg path: String) = kdf(key, *path.map { it.toByteArray() }.toTypedArray())
+
+    fun gcm(enc: Boolean, key: ByteArray, nonce: ByteArray, aad: ByteArray?, data: ByteArray): ByteArray {
+        try {
+            val c = Cipher.getInstance("AES/GCM/NoPadding")
+            c.init(if (enc) Cipher.ENCRYPT_MODE else Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonce))
+            if (aad != null) c.updateAAD(aad)
+            return c.doFinal(data)
+        } catch (e: Exception) { throw IOException("VMess: decryption failed (wrong UUID, or the phone clock is off by more than 2 minutes)") }
+    }
+
+    fun fnv1a(b: ByteArray): Int { var h = 0x811c9dc5.toInt(); for (x in b) { h = h xor (x.toInt() and 0xFF); h *= 0x01000193 }; return h }
+}
+
+/** One VMess session = one connection. Builds the sealed request header and the chunk codecs. */
+private class VmessSession(uuid: String) {
+    private val rnd = SecureRandom()
+    private val cmdKey: ByteArray
+    val bodyIv = ByteArray(16).also { rnd.nextBytes(it) }
+    val bodyKey = ByteArray(16).also { rnd.nextBytes(it) }
+    val respV = rnd.nextInt(256)
+
+    init {
+        val hex = uuid.replace("-", "")
+        val u = ByteArray(16) { hex.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
+        cmdKey = Vm.md5(u, "c48619fe-8f02-49e0-b9e9-edf763e17e21".toByteArray())
+    }
+
+    fun requestHeader(host: String, port: Int): ByteArray {
+        val h = ByteArrayOutputStream()
+        h.write(1); h.write(bodyIv); h.write(bodyKey); h.write(respV)
+        h.write(0x01)            // option: standard chunk stream
+        h.write(0x03)            // padding 0 | security AES-128-GCM
+        h.write(0); h.write(1)   // reserved, command TCP
+        h.write(port shr 8); h.write(port and 0xFF)
+        val v4 = Regex("(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})").matches(host)
+        when {
+            v4 -> { h.write(1); h.write(InetAddress.getByName(host).address) }
+            host.contains(':') -> { h.write(3); h.write(InetAddress.getByName(host).address) }
+            else -> { val b = host.toByteArray(); h.write(2); h.write(b.size); h.write(b) }
+        }
+        val f = Vm.fnv1a(h.toByteArray())
+        h.write(f ushr 24); h.write(f ushr 16); h.write(f ushr 8); h.write(f)
+        val plain = h.toByteArray()
+
+        val ts = System.currentTimeMillis() / 1000
+        val auth = ByteArrayOutputStream()
+        for (k in 7 downTo 0) auth.write(((ts shr (8 * k)) and 0xFF).toInt())
+        auth.write(ByteArray(4).also { rnd.nextBytes(it) })
+        val crc = java.util.zip.CRC32().also { it.update(auth.toByteArray()) }.value
+        auth.write((crc shr 24).toInt() and 0xFF); auth.write((crc shr 16).toInt() and 0xFF)
+        auth.write((crc shr 8).toInt() and 0xFF); auth.write(crc.toInt() and 0xFF)
+        val aes = Cipher.getInstance("AES/ECB/NoPadding")
+        aes.init(Cipher.ENCRYPT_MODE, SecretKeySpec(Vm.kdf(cmdKey, "AES Auth ID Encryption").copyOf(16), "AES"))
+        val authId = aes.doFinal(auth.toByteArray())
+
+        val nonce = ByteArray(8).also { rnd.nextBytes(it) }
+        val lenKey = Vm.kdf(cmdKey, "VMess Header AEAD Key_Length".toByteArray(), authId, nonce).copyOf(16)
+        val lenNonce = Vm.kdf(cmdKey, "VMess Header AEAD Nonce_Length".toByteArray(), authId, nonce).copyOf(12)
+        val encLen = Vm.gcm(true, lenKey, lenNonce, authId, byteArrayOf((plain.size shr 8).toByte(), plain.size.toByte()))
+        val hdrKey = Vm.kdf(cmdKey, "VMess Header AEAD Key".toByteArray(), authId, nonce).copyOf(16)
+        val hdrNonce = Vm.kdf(cmdKey, "VMess Header AEAD Nonce".toByteArray(), authId, nonce).copyOf(12)
+        val encHdr = Vm.gcm(true, hdrKey, hdrNonce, authId, plain)
+
+        val out = ByteArrayOutputStream()
+        out.write(authId); out.write(encLen); out.write(nonce); out.write(encHdr)
+        return out.toByteArray()
+    }
+}
+
+private fun chunkNonce(iv: ByteArray, count: Int): ByteArray {
+    val n = ByteArray(12)
+    n[0] = (count shr 8).toByte(); n[1] = count.toByte()
+    System.arraycopy(iv, 2, n, 2, 10)
+    return n
+}
+
+private class VmessOut(private val o: OutputStream, private val key: ByteArray, private val iv: ByteArray) : OutputStream() {
+    private var count = 0
+    override fun write(b: Int) { write(byteArrayOf(b.toByte()), 0, 1) }
+    override fun write(b: ByteArray, off: Int, len: Int) {
+        var p = 0
+        val buf = ByteArrayOutputStream()
+        while (p < len) {
+            val n = minOf(len - p, 16000)
+            val enc = Vm.gcm(true, key, chunkNonce(iv, count), null, b.copyOfRange(off + p, off + p + n))
+            count = (count + 1) and 0xFFFF
+            buf.write(enc.size shr 8); buf.write(enc.size and 0xFF); buf.write(enc)
+            p += n
+        }
+        o.write(buf.toByteArray())
+    }
+    override fun flush() { o.flush() }
+}
+
+private class VmessIn(private val i: InputStream, bodyKey: ByteArray, bodyIv: ByteArray, private val respV: Int) : InputStream() {
+    private val rKey = Vm.sha256(bodyKey).copyOf(16)
+    private val rIv = Vm.sha256(bodyIv).copyOf(16)
+    private var started = false
+    private var buf = ByteArray(0)
+    private var pos = 0
+    private var count = 0
+    private var eof = false
+
+    private fun fully(b: ByteArray) {
+        var n = 0
+        while (n < b.size) {
+            val r = i.read(b, n, b.size - n)
+            if (r < 0) throw IOException("Server closed the connection (wrong UUID, wrong clock on the phone, or the server rejected the request)")
+            n += r
+        }
+    }
+
+    private fun head() {
+        val lk = Vm.kdf(rKey, "AEAD Resp Header Len Key").copyOf(16)
+        val ln = Vm.kdf(rKey, "AEAD Resp Header Len IV").copyOf(12)
+        val e = ByteArray(18); fully(e)
+        val l = Vm.gcm(false, lk, ln, null, e)
+        val n = ((l[0].toInt() and 0xFF) shl 8) or (l[1].toInt() and 0xFF)
+        val pk = Vm.kdf(rKey, "AEAD Resp Header Key").copyOf(16)
+        val pn = Vm.kdf(rKey, "AEAD Resp Header IV").copyOf(12)
+        val eh = ByteArray(n + 16); fully(eh)
+        val h = Vm.gcm(false, pk, pn, null, eh)
+        if (h.isEmpty() || (h[0].toInt() and 0xFF) != respV) throw IOException("VMess: bad response header")
+    }
+
+    private fun fill(): Boolean {
+        if (eof) return false
+        if (!started) { head(); started = true }
+        val lb = ByteArray(2)
+        var n = 0
+        while (n < 2) {
+            val r = i.read(lb, n, 2 - n)
+            if (r < 0) { if (n == 0) { eof = true; return false }; throw IOException("VMess: connection cut mid-chunk") }
+            n += r
+        }
+        val size = ((lb[0].toInt() and 0xFF) shl 8) or (lb[1].toInt() and 0xFF)
+        if (size < 16) throw IOException("VMess: bad chunk size")
+        val body = ByteArray(size); fully(body)
+        val pl = Vm.gcm(false, rKey, chunkNonce(rIv, count), null, body)
+        count = (count + 1) and 0xFFFF
+        if (pl.isEmpty()) { eof = true; return false }
+        buf = pl; pos = 0
+        return true
+    }
+
+    override fun read(): Int {
+        val b = ByteArray(1)
+        val n = read(b, 0, 1)
+        return if (n < 0) -1 else b[0].toInt() and 0xFF
+    }
+
+    override fun read(b: ByteArray, off: Int, len: Int): Int {
+        if (len == 0) return 0
+        while (pos >= buf.size) { if (!fill()) return -1 }
+        val n = minOf(len, buf.size - pos)
+        System.arraycopy(buf, pos, b, off, n)
+        pos += n
+        return n
+    }
+}
+
 /* ---------------------------------------------------------------- Engine */
 
 /**
@@ -304,7 +485,7 @@ class JuanXEngine(
     @Volatile private var resolved: InetAddress? = null
     private val ss: SsCrypto? = if (c.xProto == "ss") SsCrypto(c.xMethod, c.xSecret) else null
 
-    private fun proto() = when (c.xProto) { "ss" -> "Shadowsocks"; "trojan" -> "Trojan"; else -> "VLESS" } +
+    private fun proto() = when (c.xProto) { "ss" -> "Shadowsocks"; "trojan" -> "Trojan"; "vmess" -> "VMess"; else -> "VLESS" } +
         (if (c.xNet == "ws") " + WebSocket" else "") + (if (c.xTls) " + TLS" else "")
 
     override fun start() {
@@ -425,6 +606,12 @@ class JuanXEngine(
                     t.o.write(req.toByteArray()); t.o.flush()
                     i = VlessIn(t.i); o = t.o
                 }
+                "vmess" -> {
+                    val vs = VmessSession(c.xSecret)
+                    t.o.write(vs.requestHeader(host, port)); t.o.flush()
+                    i = VmessIn(t.i, vs.bodyKey, vs.bodyIv, vs.respV)
+                    o = VmessOut(t.o, vs.bodyKey, vs.bodyIv)
+                }
                 else -> {
                     val so = SsOut(t.o, ss!!)
                     so.write(addr(host, port, false)); so.flush()
@@ -448,6 +635,7 @@ class JuanXEngine(
         val ok = n >= 5 && String(buf, 0, n).startsWith("HTTP/")
         if (!ok) probeError = "The server accepted the connection but no data came back. Check the " +
             (if (c.xProto == "ss") "password and cipher" else if (c.xProto == "trojan") "password" else "UUID") +
+            (if (c.xProto == "vmess") " (and that the phone clock is correct)" else "") +
             ", and that the server allows outbound traffic."
         ok
     } catch (e: Exception) {

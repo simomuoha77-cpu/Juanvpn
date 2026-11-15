@@ -73,7 +73,7 @@ details{border-top:1px solid var(--ln);padding:12px 16px}details:first-of-type{b
 <header><div class="bar"><button class="ib" id="lead" aria-label="Menu"></button><h1 id="ttl">JUAN VPN</h1><button class="ib" id="gear" aria-label="Settings"></button></div><nav class="tabs" id="tabs"></nav></header>
 <main id="v"></main><div id="md"><div class="sheet" id="sh"></div></div><div id="toast"></div>
 <script>
-const VER='2.1.0',$=s=>document.querySelector(s);
+const VER='2.2.0',$=s=>document.querySelector(s);
 const I={menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',back:'<path d="M15 5l-7 7 7 7"/>',gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',ch:'<path d="M9 5l7 7-7 7"/>',ed:'<path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/>'};
 const ic=(n,c='')=>`<svg class="${c}" viewBox="0 0 24 24">${I[n]}</svg>`;
 const SECRET=['pass','key','keyPass','pPass','xSecret'];
@@ -105,7 +105,11 @@ const logHtml=()=>LOG.length?LOG.map(l=>`<span class="ll ${LC(l)}">${esc(l)}</sp
 /* share links: vless:// trojan:// ss:// */
 const b64=x=>{x=decodeURIComponent(x).replace(/-/g,'+').replace(/_/g,'/');while(x.length%4)x+='=';return atob(x)};
 function parseLink(t){t=(t||'').trim();const m=t.match(/^([a-z0-9]+):\/\//i);if(!m)throw Error('Not a share link');const sc=m[1].toLowerCase();
-if(sc==='vmess')throw Error('VMess is not supported yet. Use a VLESS, Trojan or Shadowsocks link.');
+if(sc==='vmess'){let j;try{j=JSON.parse(b64(t.slice(8).split('#')[0]))}catch(e){throw Error('Could not read this VMess link')}
+if(+(j.aid||0)!==0)throw Error('VMess alterId must be 0 (AEAD). This server uses legacy auth.');
+const net=j.net||'tcp';if(!['tcp','ws'].includes(net))throw Error('Transport "'+net+'" is not supported (only tcp and ws).');
+if(net==='tcp'&&j.type&&j.type!=='none')throw Error('TCP header obfuscation is not supported.');
+const tls=j.tls==='tls';return{o:{tunnel:'v2',xProto:'vmess',xSecret:String(j.id||''),xHost:String(j.add||''),xPort:String(j.port||'443'),xNet:net,xTls:tls,xSni:j.sni||(tls?(j.host||''):''),xWsPath:j.path||'/',xWsHost:net==='ws'?(j.host||''):''},name:j.ps||''}}
 if(sc==='hysteria'||sc==='hysteria2'||sc==='hy2')throw Error('Hysteria needs a QUIC engine that is not bundled in this build.');
 const frag=t.includes('#')?decodeURIComponent(t.slice(t.indexOf('#')+1)):'';const body=t.slice(m[0].length).split('#')[0];
 if(sc==='ss'){let main=body.split('?')[0],q=new URLSearchParams(body.includes('?')?body.split('?')[1]:'');let cred,hp;
@@ -155,15 +159,15 @@ ${S.tunnel!=='ssh'?'':S.custom&&PAY.includes(S.from)?card('Payload',`<div class=
 ${S.tunnel==='ssh'?card('',go('ssh',['SSH server',(S.user&&S.sshHost)?S.user+'@'+S.sshHost+':'+S.sshPort:'Not set'])):card('',go('xserver',[XN[S.tunnel]+' server',xdesc()]))}
 ${card('',`<label class="row"><div class="t"><b>DNS (${S.dnsMode==='auto'?'Automatic':esc(S.dns1)})</b><small>${S.dnsFwd?'Forwarded through tunnel':'Resolved locally'}</small></div></label>`+go('dns',['DNS and routing','Servers, routes, kill switch']))}`},
 
-tunnel(){return card('Tunnel type',rad('tunnel','ssh','Secure Shell (SSH)')+rad('tunnel','v2','V2Ray / Xray (VLESS, Trojan)')+rad('tunnel','hy','Hysteria',1,'Needs QUIC engine')+rad('tunnel','ss','Shadowsocks'))
+tunnel(){return card('Tunnel type',rad('tunnel','ssh','Secure Shell (SSH)')+rad('tunnel','v2','V2Ray / Xray (VMess, VLESS, Trojan)')+rad('tunnel','hy','Hysteria',1,'Needs QUIC engine')+rad('tunnel','ss','Shadowsocks'))
 +(S.tunnel==='ssh'?card('Connect from',Object.entries(FROM).map(([k,l])=>rad('from',k,l)).join(''))
 +card('Options',sw('Custom payload','custom','Sent before the SSH handshake over HTTP, TLS or WebSocket transports.',1))
 +'<div class="note">Direct + SNI connects straight to your server over TLS with the server name you choose. Leave the front address empty to use the SSH host.</div>'
-:card('',go('xserver',[XN[S.tunnel]+' server',xdesc()]))+'<div class="note">VLESS and Trojan work over TCP, TLS and WebSocket. VMess, REALITY, XTLS flow and Hysteria (QUIC) are not available in this build.</div>')},
+:card('',go('xserver',[XN[S.tunnel]+' server',xdesc()]))+'<div class="note">VMess, VLESS and Trojan work over TCP, TLS and WebSocket on any port. REALITY, XTLS flow, gRPC and Hysteria (QUIC) are not available in this build. VMess needs the phone clock to be accurate.</div>')},
 
 xserver(){const v2=S.tunnel==='v2',ss=S.tunnel==='ss';
-return card('Import',`<div class="fld"><label>Paste a share link</label><textarea data-k="link" spellcheck="false" autocapitalize="off" placeholder="vless://… trojan://… ss://…" style="min-height:70px">${esc(S.link)}</textarea></div><div class="btns"><button class="btn sm pri" data-act="impLink">Import link</button></div>`)
-+card('Server',(v2?`<div class="fld"><label>Protocol</label><select data-k="xProto" data-re><option value="vless" ${S.xProto==='vless'?'selected':''}>VLESS</option><option value="trojan" ${S.xProto==='trojan'?'selected':''}>Trojan</option></select></div>`:'')
+return card('Import',`<div class="fld"><label>Paste a share link</label><textarea data-k="link" spellcheck="false" autocapitalize="off" placeholder="vmess://… vless://… trojan://… ss://…" style="min-height:70px">${esc(S.link)}</textarea></div><div class="btns"><button class="btn sm pri" data-act="impLink">Import link</button></div>`)
++card('Server',(v2?`<div class="fld"><label>Protocol</label><select data-k="xProto" data-re><option value="vless" ${S.xProto==='vless'?'selected':''}>VLESS</option><option value="vmess" ${S.xProto==='vmess'?'selected':''}>VMess</option><option value="trojan" ${S.xProto==='trojan'?'selected':''}>Trojan</option></select></div>`:'')
 +f('Address','xHost',{ph:'server.example.com'})+f('Port','xPort',{m:'numeric'})
 +f(ss||S.xProto==='trojan'?'Password':'UUID','xSecret',{t:ss||S.xProto==='trojan'?'password':'text'})
 +(ss?`<div class="fld"><label>Cipher</label><select data-k="xMethod"><option value="aes-256-gcm" ${S.xMethod==='aes-256-gcm'?'selected':''}>aes-256-gcm</option><option value="aes-128-gcm" ${S.xMethod==='aes-128-gcm'?'selected':''}>aes-128-gcm</option><option value="chacha20-ietf-poly1305" ${S.xMethod==='chacha20-ietf-poly1305'?'selected':''}>chacha20-ietf-poly1305</option></select></div>`:''))

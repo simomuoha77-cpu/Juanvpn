@@ -33,8 +33,8 @@ data class JuanCfg(
         tunnel == "hy" -> "Hysteria needs a QUIC engine that is not bundled in this build"
         xHost.isBlank() -> "Server address is required"
         xPort !in 1..65535 -> "Server port must be 1-65535"
-        xSecret.isBlank() -> if (xProto == "vless") "UUID is required" else "Password is required"
-        xProto == "vless" && !Regex("[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}").matches(xSecret.trim()) -> "UUID is not valid"
+        xSecret.isBlank() -> if (xProto == "vless" || xProto == "vmess") "UUID is required" else "Password is required"
+        (xProto == "vless" || xProto == "vmess") && !Regex("[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}").matches(xSecret.trim()) -> "UUID is not valid"
         xProto == "ss" && xMethod !in SS_METHODS -> "Unsupported Shadowsocks cipher: $xMethod"
         xProto == "trojan" && !xTls -> "Trojan requires TLS"
         else -> null
@@ -58,7 +58,7 @@ data class JuanCfg(
                 o.optBoolean("verify", true),
                 o.optBoolean("reconnect", true), i("delay", 5).coerceIn(1, 60), i("retries", 5).coerceIn(1, 10),
                 when (s("tunnel")) { "v2", "ss", "hy" -> s("tunnel"); else -> "ssh" },
-                when (s("tunnel")) { "ss" -> "ss"; "v2" -> s("xProto").let { if (it == "trojan") "trojan" else "vless" }; else -> "vless" },
+                when (s("tunnel")) { "ss" -> "ss"; "v2" -> s("xProto").let { if (it == "trojan" || it == "vmess") it else "vless" }; else -> "vless" },
                 s("xHost").trim(), i("xPort", 443), s("xSecret").trim(),
                 s("xMethod").ifBlank { "aes-256-gcm" }.lowercase(),
                 if (s("xNet") == "ws") "ws" else "tcp",

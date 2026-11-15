@@ -55,5 +55,6 @@ These source changes address lifecycle and permission-flow defects visible in th
 - **520 / flaky connects:** temporary failures (proxy 5xx incl. 520-524, dropped handshakes, timeouts) are retried with a growing, randomised pause. Settings → Reliability (Auto reconnect, Delay, Max retries) now actually controls this. Credentials and host-key errors are never retried.
 - **Direct + SNI (TLS):** new *Connect from* option. Connects straight to the SSH host (or an optional front address) over TLS with the server name you choose. *Verify certificate* is now honoured (on by default; turning it off logs a warning).
 - **Shadowsocks** (aes-128-gcm, aes-256-gcm, chacha20-ietf-poly1305; optional v2ray-plugin style WebSocket/TLS) and **V2Ray / Xray** (VLESS and Trojan over TCP, TLS or WebSocket) are implemented in `JuanXEngine.kt`. Paste `ss://`, `vless://` or `trojan://` links under *Proxy server → Import*.
-- **Not available:** VMess, REALITY, XTLS flow, gRPC/HTTP2 transports and Hysteria (needs a QUIC stack). These are refused with a clear message instead of failing silently.
+- **VMess** (AEAD, alterId 0, AES-128-GCM) is supported over TCP, TLS or WebSocket on any port; the phone clock must be accurate.
+- **Not available:** REALITY, XTLS flow, gRPC/HTTP2 transports and Hysteria (needs a QUIC stack). These are refused with a clear message instead of failing silently.
 - **Log colours:** errors red, warnings amber, successful steps and *Connected* green.
