@@ -13,6 +13,8 @@ import java.net.Socket
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.security.Security
+import org.bouncycastle.jce.provider.BouncyCastleProvider
 
 private class CIn(val i: InputStream, val n: AtomicLong) : InputStream() {
     override fun read(): Int { val b = i.read(); if (b >= 0) n.incrementAndGet(); return b }
@@ -43,15 +45,21 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
         val label = if (c.sshPort == 22) c.sshHost else "[${c.sshHost}]:${c.sshPort}"
         val known = listOf(HostKeys.normalize(c.sshHost, c.sshPort, c.known), trust.stored(label) ?: "")
             .filter { it.isNotBlank() }.joinToString("\n")
-        val types = HostKeys.types(known)
+        // Android does not expose Ed25519 through the same JCA providers on every
+        // supported API level. Register BC before JSch builds its algorithm list.
+        if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
+            Security.addProvider(BouncyCastleProvider())
+        }
         val jsch = JSch()
         if (known.isNotBlank()) jsch.setKnownHosts(ByteArrayInputStream(known.toByteArray()))
         if (c.key.isNotBlank()) jsch.addIdentity("juan-key", c.key.toByteArray(), null, c.keyPass.takeIf { it.isNotEmpty() }?.toByteArray())
         val s = jsch.getSession(c.user, c.sshHost, c.sshPort)
         if (c.pass.isNotEmpty()) s.setPassword(c.pass)
-        if (types.isNotEmpty()) {
+        if (known.isNotBlank()) {
+            // Do not restrict negotiation to the algorithms in an old known_hosts
+            // entry. Negotiate the server's supported key type first, then let
+            // StrictHostKeyChecking verify the actual key against the saved record.
             s.setConfig("StrictHostKeyChecking", "yes")
-            s.setConfig("server_host_key", HostKeys.algorithms(types))
         } else {
             // First connection: the user must confirm the fingerprint. Never auto-trusted.
             s.setConfig("StrictHostKeyChecking", "ask")
@@ -73,7 +81,7 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
         s.setServerAliveInterval(c.keepalive * 1000)
         s.setServerAliveCountMax(3)
         s.setProxy(JuanProxy(c, log))
-        log("SSH: connecting ${c.sshHost}:${c.sshPort}" + if (types.isEmpty()) " (new server, key needs confirmation)" else " (verifying saved host key)")
+        log("SSH: connecting ${c.sshHost}:${c.sshPort}" + if (known.isBlank()) " (new server, key needs confirmation)" else " (verifying saved host key)")
         s.connect(20_000)
         log("SSH: authenticated as ${c.user}")
         session = s

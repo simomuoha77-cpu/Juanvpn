@@ -62,8 +62,4 @@ object HostKeys {
     fun types(normalized: String): List<String> =
         normalized.lines().mapNotNull { val p = it.trim().split(ws); if (p.size >= 3 && isKeyType(p[1])) p[1] else null }.distinct()
 
-    /** Algorithms to offer so the server presents a key type we hold a record for. */
-    fun algorithms(types: List<String>): String = types.flatMap {
-        if (it == "ssh-rsa") listOf("rsa-sha2-512", "rsa-sha2-256", "ssh-rsa") else listOf(it)
-    }.joinToString(",")
 }
