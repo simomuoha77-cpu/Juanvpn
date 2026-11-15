@@ -42,6 +42,8 @@ Only use servers you own or are authorized to use. Exported profile JSON may con
 - Android 13+ notification permission is requested and awaited before the VPN consent flow.
 - Duplicate Connect requests are rejected while a connection attempt is active.
 - Connection-service logs are persisted through `AppLog` and restored when the activity/service starts.
+- Fixed the WebView/native log feedback loop: native log callbacks now render without being written back as new native log events. UI-originated log entries are persisted directly, preventing recursive duplicate timestamps and runaway log output.
+- Kept the targeted Android packaging exclusion for the duplicate multi-release OSGi manifest reported by GitHub Actions.
 
 ## Important validation status
 

@@ -142,7 +142,7 @@ class JuanWebActivity : Activity() {
             continueVpnPermissionFlow()
         }
         @JavascriptInterface fun saveSecrets(j: String) { JuanSecrets.save(applicationContext, j) }
-        @JavascriptInterface fun appendUiLog(message: String) { JuanBus.log(message) }
+        @JavascriptInterface fun appendUiLog(message: String) { AppLog.write(applicationContext, message) }
         @JavascriptInterface fun readLogs(): String = AppLog.read(applicationContext)
         @JavascriptInterface fun loadSecrets(): String = JuanSecrets.load(applicationContext)
         @JavascriptInterface fun hostKeyAnswer(ok: Boolean) { JuanBus.answer = ok; JuanBus.latch?.countDown() }
