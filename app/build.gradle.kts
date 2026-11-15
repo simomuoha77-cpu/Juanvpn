@@ -15,7 +15,8 @@ android {
     // Resolve the duplicate multi-release JAR metadata reported by Android packaging.
     packaging {
         resources {
-            excludes += "META-INF/versions/15/OSGI-INF/MANIFEST.MF"
+            excludes += "META-INF/versions/*/OSGI-INF/MANIFEST.MF"
+            excludes += "META-INF/MANIFEST.MF"
         }
     }
 }
@@ -25,6 +26,7 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")
     implementation("com.github.mwiede:jsch:0.2.21")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 }

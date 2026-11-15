@@ -31,7 +31,8 @@ interface HostTrust {
     fun save(line: String)
 }
 
-class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, private val trust: HostTrust) {
+class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, private val trust: HostTrust, private val protect: (Socket) -> Unit = {}) {
+    @Volatile var probeError = ""
     val up = AtomicLong(); val down = AtomicLong()
     @Volatile var socksPort = 0; private set
     private var session: Session? = null
@@ -72,7 +73,7 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
         }
         s.setServerAliveInterval(c.keepalive * 1000)
         s.setServerAliveCountMax(3)
-        s.setProxy(JuanProxy(c, log))
+        s.setProxy(JuanProxy(c, log, protect))
         log("SSH: connecting ${c.sshHost}:${c.sshPort}" + if (types.isEmpty()) " (new server, key needs confirmation)" else " (verifying saved host key)")
         s.connect(20_000)
         log("SSH: authenticated as ${c.user}")
@@ -90,7 +91,13 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
         val ch = session!!.openChannel("direct-tcpip") as ChannelDirectTCPIP
         ch.setHost("1.1.1.1"); ch.setPort(443); ch.connect(8000)
         val ok = ch.isConnected; ch.disconnect(); ok
-    } catch (e: Exception) { log("Probe failed: ${e.message}"); false }
+    } catch (e: Exception) {
+        log("Probe failed: ${e.message}")
+        probeError = if (e.message?.contains("prohibited", true) == true || e.message?.contains("open failed", true) == true)
+            "SSH login worked, but the server refuses TCP forwarding. On the server set AllowTcpForwarding yes in sshd_config and restart sshd."
+        else "SSH login worked, but traffic could not pass through the tunnel: ${e.message}"
+        false
+    }
 
     private fun handle(cl: Socket, ssh: Session) = cl.use { c0 ->
         val inp = DataInputStream(c0.getInputStream()); val out = c0.getOutputStream()
@@ -130,6 +137,10 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
             return when {
                 m.contains("reject HostKey", true) -> "SSH host key rejected: it does not match the record in Known hosts. Confirm the correct key with the server admin; do not trust it blindly."
                 m.contains("changed", true) && m.contains("HostKey", true) -> "SERVER HOST KEY CHANGED: this is not the server you trusted before. Do not continue unless the server admin confirms a key change."
+                m.contains("Algorithm negotiation fail", true) && m.contains("server_host_key") -> "The server's host key type differs from the saved one. Tap 'Forget trusted key' on the SSH server screen and connect again."
+                m.contains("Algorithm negotiation fail", true) -> "No common SSH algorithm with this server ($m)"
+                m.contains("HANDSHAKE_FAILURE", true) -> "The TLS server rejected the handshake. It may need a domain-name SNI (an IP address cannot be used), or it does not speak TLS on this port."
+                m.contains("ENETUNREACH", true) -> "No network path to the server. Check your internet connection."
                 m.contains("UnknownHostKey", true) -> "Unknown SSH host key: add the server's verified known_hosts record."
                 m.contains("Auth fail", true) || m.contains("Auth cancel", true) -> "SSH authentication failed: wrong username, password or key."
                 e is java.net.UnknownHostException -> "Cannot resolve host: $m"

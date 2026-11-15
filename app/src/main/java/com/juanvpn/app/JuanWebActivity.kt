@@ -27,6 +27,8 @@ class JuanWebActivity : Activity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
+        JuanCrash.install(this)
+        JuanCrash.report(this)?.let { JuanBus.log(it) }
         JuanBus.init(applicationContext)
         web = WebView(this).apply {
             setBackgroundColor(0xff0a111f.toInt())
@@ -142,6 +144,10 @@ class JuanWebActivity : Activity() {
             continueVpnPermissionFlow()
         }
         @JavascriptInterface fun saveSecrets(j: String) { JuanSecrets.save(applicationContext, j) }
+        @JavascriptInterface fun forgetHostKey(host: String, port: String) {
+            val label = if (port == "22") host else "[$host]:$port"
+            getSharedPreferences("juan_trust", MODE_PRIVATE).edit().remove(label).apply()
+        }
         @JavascriptInterface fun appendUiLog(message: String) { AppLog.write(applicationContext, message) }
         @JavascriptInterface fun readLogs(): String = AppLog.read(applicationContext)
         @JavascriptInterface fun loadSecrets(): String = JuanSecrets.load(applicationContext)

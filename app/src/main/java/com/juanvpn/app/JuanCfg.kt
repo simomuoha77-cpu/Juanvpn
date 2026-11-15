@@ -16,7 +16,7 @@ data class JuanCfg(
         sshPort !in 1..65535 -> "SSH port must be 1-65535"
         user.isBlank() -> "SSH username is required"
         pass.isEmpty() && key.isBlank() -> "Enter an SSH password or private key"
-        from in listOf("http", "socks5", "tls") && pHost.isBlank() -> "Proxy host is required"
+        from in listOf("http", "socks5", "tls", "ws") && pHost.isBlank() -> "Proxy host is required"
         from in listOf("http", "socks5", "tls", "ws") && pHost.isNotBlank() && pPort !in 1..65535 -> "Proxy port must be 1-65535"
         from == "tls" && sni.isBlank() -> "SNI is required for a TLS proxy"
         else -> null

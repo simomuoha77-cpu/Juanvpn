@@ -119,7 +119,7 @@ class JuanVpnService : VpnService() {
             c.validate()?.let { throw IllegalArgumentException(it) }
             if (stopping || Thread.currentThread().isInterrupted) return
             post("CONNECTING", "Opening SSH tunnel", "")
-            val e = JuanSshEngine(c, JuanBus::log, trust())
+            val e = JuanSshEngine(c, JuanBus::log, trust()) { s -> protect(s) }
             engine = e
             e.start()
             if (stopping || Thread.currentThread().isInterrupted) { e.stop(); return }
@@ -130,7 +130,7 @@ class JuanVpnService : VpnService() {
             TunEngine.start(this, pfd.fd, e.socksPort)
             JuanBus.log("TUN: packet engine started")
             post("CONNECTING", "Checking tunnel", "")
-            if (!e.probe()) throw IllegalStateException("SSH is up but no traffic passed through the tunnel")
+            if (!e.probe()) throw IllegalStateException(e.probeError.ifBlank { "SSH is up but no traffic passed through the tunnel" })
             t0 = System.currentTimeMillis()
             post("CONNECTED", "${c.user}@${c.sshHost}", "")
             startStats(e)

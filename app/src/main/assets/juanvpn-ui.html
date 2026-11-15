@@ -76,7 +76,7 @@ const VER='2.0.0',$=s=>document.querySelector(s);
 const I={menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',back:'<path d="M15 5l-7 7 7 7"/>',gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',ch:'<path d="M9 5l7 7-7 7"/>',ed:'<path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/>'};
 const ic=(n,c='')=>`<svg class="${c}" viewBox="0 0 24 24">${I[n]}</svg>`;
 const SECRET=['pass','key','keyPass','pPass'];
-const D={name:'My server',tunnel:'ssh',from:'tls',custom:true,sshHost:'',sshPort:'22',user:'',pass:'',key:'',keyPass:'',known:'',keepalive:'30',
+const D={name:'My server',tunnel:'ssh',from:'direct',custom:true,sshHost:'',sshPort:'22',user:'',pass:'',key:'',keyPass:'',known:'',keepalive:'30',
 pHost:'',pPort:'443',pUser:'',pPass:'',sni:'',verify:true,ws:false,wsPath:'/',payload:'GET wss://[host] HTTP/1.1[crlf]Host: [host][crlf]Connection: upgrade[crlf]Upgrade: websocket[crlf][crlf]',
 dnsMode:'custom',dns1:'1.1.1.1',dns2:'1.0.0.1',dnsFwd:true,defRoute:true,ipv6:false,kill:false,routes:'',excl:'',appMode:'off',apps:[],
 reconnect:true,delay:'5',retries:'5',wake:false};
@@ -130,7 +130,7 @@ tunnel(){return card('Tunnel type',rad('tunnel','ssh','Secure Shell (SSH)')+rad(
 
 ssh(){return card('Server',f('Profile name','name')+`<div class="g2" style="padding:0 16px"><div class="fld" style="padding-left:0;border:0"><label>Host</label><input data-k="sshHost" value="${esc(S.sshHost)}" autocapitalize="off"></div><div class="fld" style="padding-right:0;border:0"><label>Port</label><input data-k="sshPort" value="${esc(S.sshPort)}" inputmode="numeric"></div></div>`)
 +card('Authentication',f('Username','user')+f('Password','pass',{t:'password'})+f('Private key (optional)','key',{area:1,ph:'-----BEGIN OPENSSH PRIVATE KEY-----'})+f('Key passphrase','keyPass',{t:'password'})+'<div class="fld"><div class="h" style="margin:0">Credentials are handed to Android Keystore storage and are not kept in the page.</div></div>')
-+card('Host key',f('Known host key (optional)','known',{area:1,ph:'host ssh-ed25519 AAAA…',h:'Leave empty. On first connect you will see the server fingerprint and choose to trust it. A changed key later is blocked.'}))
++card('Host key',f('Known host key (optional)','known',{area:1,ph:'host ssh-ed25519 AAAA…',h:'Leave empty. On first connect you will see the server fingerprint and choose to trust it. A changed key later is blocked.'})+'<div class="btns"><button class="btn sm bad" data-act="forget">Forget trusted key</button></div>')
 +card('Keep-alive',f('Heartbeat (seconds)','keepalive',{m:'numeric'}))},
 
 tls(){return card('Upstream proxy',f('Host / IP','pHost')+f('Port','pPort',{m:'numeric'})+f('Username (optional)','pUser')+f('Password (optional)','pPass',{t:'password'}))
@@ -185,6 +185,7 @@ $('#gear').onclick=()=>nav('settings');
 function validate(){const e=[];if(!S.sshHost.trim())e.push('SSH host is required');const p=+S.sshPort;if(!(p>0&&p<65536))e.push('SSH port must be 1–65535');if(!S.user.trim())e.push('SSH username is required');if(!S.pass&&!S.key)e.push('Enter an SSH password or private key');if(['http','socks5','tls'].includes(S.from)&&!S.pHost.trim())e.push('Proxy host is required');if(S.from==='tls'&&!S.sni.trim())e.push('SNI is required for a TLS proxy');return e}
 const TPL={ws:'GET wss://[host] HTTP/1.1[crlf]Host: [host][crlf]Connection: upgrade[crlf]Upgrade: websocket[crlf][crlf]',connect:'CONNECT [host]:443 HTTP/1.1[crlf]Host: [host][crlf][crlf]',get:'GET / HTTP/1.1[crlf]Host: [host][crlf][crlf]'};
 const ACT={
+forget(){S.known='';save();B()&&B().forgetHostKey&&B().forgetHostKey(S.sshHost,String(S.sshPort));toast('Trusted key cleared');render()},
 mdclose(){unmodal();render()},hkyes(){B()&&B().hostKeyAnswer&&B().hostKeyAnswer(true);unmodal()},hkno(){B()&&B().hostKeyAnswer&&B().hostKeyAnswer(false);unmodal()},
 start(){const e=validate();if(e.length){ST.error=e[0];log('Validation failed: '+e[0]);render();return}
 ST={state:'CONNECTING',detail:'Starting…',error:''};log('Connect requested for '+S.name);render();

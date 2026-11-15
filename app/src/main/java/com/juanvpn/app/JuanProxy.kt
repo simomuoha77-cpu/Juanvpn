@@ -29,7 +29,7 @@ private fun fill(t: String, host: String, port: Int) =
         .replace("[crlf]", "\r\n").replace("[cr]", "\r").replace("[lf]", "\n")
 
 /** Real upstream transport for SSH: direct, HTTP CONNECT/payload, SOCKS5, TLS(+SNI)+payload, WebSocket upgrade. */
-class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit) : Proxy {
+class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, private val protect: (Socket) -> Unit = {}) : Proxy {
     private var sock: Socket? = null
     private var ins: InputStream? = null
     private var outs: OutputStream? = null
@@ -42,12 +42,14 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit) : Pro
         val addr = InetAddress.getByName(th)
         log("DNS: $th -> ${addr.hostAddress}")
         var s = Socket()
+        protect(s)
         s.connect(InetSocketAddress(addr, tp), timeout)
         s.soTimeout = timeout
         s.tcpNoDelay = true
         log("Proxy: TCP connected ${addr.hostAddress}:$tp (${c.from})")
         if (c.from == "tls" || (c.from == "ws" && c.sni.isNotBlank())) {
             val name = c.sni.ifBlank { th }
+            if (name.matches(Regex("[0-9.:]+"))) log("TLS: warning - SNI is an IP address; servers usually need a domain name here")
             log("TLS: handshake, SNI=$name")
             val ssl = tlsWrap(s, name, tp)
             log("TLS: ${ssl.session.protocol} ${ssl.session.cipherSuite}, certificate verified")
