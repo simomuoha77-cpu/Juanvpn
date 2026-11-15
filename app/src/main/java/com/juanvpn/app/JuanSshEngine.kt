@@ -115,6 +115,7 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
                 else -> return@use
             }
             val port = (inp.read() shl 8) or inp.read()
+            if (JuanPolicy.blocked(host, port)) { out.write(byteArrayOf(5, 2, 0, 1, 0, 0, 0, 0, 0, 0)); return@use }
             val ch = ssh.openChannel("direct-tcpip") as ChannelDirectTCPIP
             ch.setHost(host); ch.setPort(port)
             ch.setInputStream(CIn(inp, up)); ch.setOutputStream(COut(out, down))

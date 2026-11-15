@@ -152,7 +152,8 @@ class JuanVpnService : VpnService() {
     private fun connectFlow(json: String) {
         try {
             JuanBus.log("Connection worker started")
-            val c = JuanCfg.parse(json)
+            val c = JuanPolicy.apply(this, JuanCfg.parse(json))
+            JuanPolicy.check(this, c)?.let { throw IllegalStateException(it) }
             c.validate()?.let { throw IllegalArgumentException(it) }
             if (stopping || Thread.currentThread().isInterrupted) return
             post("CONNECTING", when (c.tunnel) { "ssh" -> "Opening SSH tunnel"; "ss" -> "Opening Shadowsocks tunnel"; else -> "Opening ${c.xProto.uppercase()} tunnel" }, "")
@@ -186,7 +187,12 @@ class JuanVpnService : VpnService() {
         val b = Builder().setSession("JUAN VPN").setMtu(1500)
             .addAddress("10.10.10.2", 32).addRoute("0.0.0.0", 0).addDnsServer(TunEngine.DNS)
             .addAddress("fd00:10:10::2", 128).addRoute("::", 0) // IPv6 blackholed: no leaks, tunnel is IPv4-only
-        when (c.appMode) {
+        if (c.policy?.optBoolean("gamingMode", false) == true) {
+            val games = JuanPolicy.gamePackages(this)
+            if (games.isEmpty()) throw IllegalStateException("Gaming mode: no installed games were found on this phone")
+            JuanBus.log("Gaming mode: only ${games.size} game app(s) use the VPN")
+            games.forEach { try { b.addAllowedApplication(it) } catch (_: Exception) {} }
+        } else when (c.appMode) {
             "inc" -> if (c.apps.isEmpty()) { JuanBus.log("Apps filter: nothing selected, routing all apps"); b.addDisallowedApplication(packageName) }
                      else c.apps.forEach { try { b.addAllowedApplication(it) } catch (_: Exception) {} }
             "exc" -> { c.apps.forEach { try { b.addDisallowedApplication(it) } catch (_: Exception) {} }; b.addDisallowedApplication(packageName) }

@@ -15,7 +15,8 @@ data class JuanCfg(
     val tunnel: String = "ssh",
     val xProto: String = "vless", val xHost: String = "", val xPort: Int = 443, val xSecret: String = "",
     val xMethod: String = "aes-256-gcm", val xNet: String = "tcp", val xTls: Boolean = true,
-    val xSni: String = "", val xWsPath: String = "/", val xWsHost: String = ""
+    val xSni: String = "", val xWsPath: String = "/", val xWsHost: String = "",
+    val policy: JSONObject? = null
 ) {
     fun validate(): String? = if (tunnel != "ssh") validateX() else when {
         sshHost.isBlank() -> "SSH host is required"
@@ -62,7 +63,8 @@ data class JuanCfg(
                 s("xHost").trim(), i("xPort", 443), s("xSecret").trim(),
                 s("xMethod").ifBlank { "aes-256-gcm" }.lowercase(),
                 if (s("xNet") == "ws") "ws" else "tcp",
-                o.optBoolean("xTls", true), s("xSni").trim(), s("xWsPath").ifBlank { "/" }, s("xWsHost").trim()
+                o.optBoolean("xTls", true), s("xSni").trim(), s("xWsPath").ifBlank { "/" }, s("xWsHost").trim(),
+                o.optJSONObject("_policy")
             )
         }
     }

@@ -77,7 +77,7 @@ const VER='2.3.3',$=s=>document.querySelector(s);
 const I={menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',back:'<path d="M15 5l-7 7 7 7"/>',gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',plus:'<path d="M12 5v14M5 12h14"/>',ch:'<path d="M9 5l7 7-7 7"/>',ed:'<path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/>'};
 const ic=(n,c='')=>`<svg class="${c}" viewBox="0 0 24 24">${I[n]}</svg>`;
 const SECRET=['pass','key','keyPass','pPass','xSecret'];
-const HJ_D={fileName:'juanvpn-config',includeSSH:true,includeV2Ray:true,includeHysteria:false,includeShadowsocks:false,lockConfig:true,lockAll:false,payload:true,remoteProxy:true,proxyAuth:false,sni:true,sshHostPort:true,sshAuth:true,v2Editor:true,v2ServerPort:true,v2Password:true,dnsResolver:false,dnsttSettings:false,mobileDataOnly:false,lockMobileOperator:false,attestDevice:false,blockRooted:false,playStoreOnly:false,deviceIdLock:false,expiry:false,loginSshDeviceId:false,disableUserOverwrite:false,disallowTorrent:false,gamingMode:false,notes:'',password:'',confirmPassword:''};
+const HJ_D={fileName:'juanvpn-config',includeSSH:true,includeV2Ray:true,includeHysteria:false,includeShadowsocks:false,lockConfig:true,lockAll:false,payload:true,remoteProxy:true,proxyAuth:false,sni:true,sshHostPort:true,sshAuth:true,v2Editor:true,v2ServerPort:true,v2Password:true,dnsResolver:false,dnsttSettings:false,mobileDataOnly:false,lockMobileOperator:false,attestDevice:false,blockRooted:false,playStoreOnly:false,deviceIdLock:false,expiry:false,loginSshDeviceId:false,disableUserOverwrite:false,disallowTorrent:false,gamingMode:false,expiryDate:'',deviceIds:'',operatorCodes:'',notes:'',password:'',confirmPassword:''};
 let HJ={...HJ_D};
 try{HJ={...HJ,...JSON.parse(localStorage.getItem('juan.hj')||'{}')}}catch(e){}
 HJ.password='';HJ.confirmPassword='';
@@ -204,10 +204,14 @@ dns(){return card('DNS',`<div class="fld"><label>Mode</label><select data-k="dns
 apps(){return card('Mode',`<div class="fld"><select data-k="appMode" data-re><option value="off" ${S.appMode==='off'?'selected':''}>Off — route all apps</option><option value="inc" ${S.appMode==='inc'?'selected':''}>Only selected apps</option><option value="exc" ${S.appMode==='exc'?'selected':''}>All except selected</option></select></div>`)
 +(S.appMode==='off'?'':card('Installed apps',appsList.length?appsList.map(a=>`<label class="ap"><div class="t"><b>${esc(a.name)}</b><small>${esc(a.pkg)}</small></div><input type="checkbox" class="sw" data-app="${esc(a.pkg)}" ${S.apps.includes(a.pkg)?'checked':''}></label>`).join(''):'<div class="fld"><div class="h" style="margin:0">No app list yet. The Android layer supplies installed apps when this screen opens.</div></div>'))},
 
-settings(){return card('Tunnel',go('tunnel',[XN[S.tunnel],sum()])+go('ssh',['SSH server','Host, auth, host key'])+go('xserver',['V2Ray / Shadowsocks server','Address, UUID or password, transport'])+go('dns',['DNS and routing','']))
+settings(){return card('Device',go('deviceid',['Device ID',deviceId()]))+card('Tunnel',go('tunnel',[XN[S.tunnel],sum()])+go('ssh',['SSH server','Host, auth, host key'])+go('xserver',['V2Ray / Shadowsocks server','Address, UUID or password, transport'])+go('dns',['DNS and routing','']))
 +card('Reliability',sw('Auto reconnect','reconnect','',1)+(S.reconnect?f('Delay (seconds)','delay',{m:'numeric'})+f('Max retries','retries',{m:'numeric',h:'Stops early on bad credentials or an unreachable server.'}):'')+sw('CPU wake lock','wake','Fewer drops with the screen off. Uses more battery.')+`<button class="row" data-act="batt"><div class="t"><b>Battery optimization</b><small>Exempt JUAN VPN so it stays alive</small></div>${ic('ch','ch')}</button>`)
 +card('Notifications',`<button class="row" data-act="notif"><div class="t"><b>Allow notifications</b><small>Needed for the Disconnect action on Android 13+</small></div>${ic('ch','ch')}</button>`)
 +card('Cloud HJ uploads',`<div class="fld"><label>HTTPS upload endpoint</label><input id="cloudEndpoint" type="url" value="${esc(localStorage.getItem('juan.cloudEndpoint')||'')}" placeholder="https://your-worker.example/upload"><div class="h">Endpoint must accept POST JSON {filename, content, format} and return JSON {url}. Configure your own upload service.</div></div><button class="btn pri" data-act="saveCloudEndpoint">Save endpoint</button>`)},
+
+deviceid(){const id=deviceId();const sim=B()&&B().simOperator?B().simOperator():'';
+return card('Your Device ID',`<div class="fld"><div style="font:600 20px/1.3 ui-monospace,Menlo,monospace;letter-spacing:.5px;word-break:break-all;color:var(--ac)">${esc(id)}</div><div class="h">Give this ID to the person who owns the config so they can lock it to your phone.</div></div><div class="btns"><button class="btn sm pri" data-act="copyId">Copy</button><button class="btn sm" data-act="shareId">Share</button></div>`)
++card('This phone',`<div class="row"><div class="t"><b>SIM operator code</b><small>${esc(sim||'No SIM detected')}</small></div></div>`)},
 
 exporter(){
 const hc=(label,key,sub='')=>`<label class="row"><div class="t"><b>${label}</b>${sub?`<small style="white-space:normal">${sub}</small>`:''}</div><input type="checkbox" class="sw" data-hj="${key}" ${HJ[key]?'checked':''}></label>`;
@@ -218,7 +222,21 @@ return card('Config file',hf('Config file name (saved as .HJ)','fileName')+`<div
 +card('Secure Shell (SSH)',hc('SSH host and port','sshHostPort')+hc('SSH username and password','sshAuth'))
 +card('V2Ray',hc('Editor','v2Editor')+hc('Server, port','v2ServerPort')+hc('Password / UUID','v2Password'))
 +card('DNSTT',hc('DNS resolver','dnsResolver')+hc('DNSTT settings','dnsttSettings'))
-+card('Advanced policies',`<div class="note">Advanced device and network enforcement options are not implemented in this release, so they are not shown as active settings.</div>`)
++card('Extra',hc('Mobile data network only','mobileDataOnly','Refuses to connect on Wi-Fi.')
++hc('Lock mobile operator','lockMobileOperator','Works only with SIMs from the operator codes below.')
++(HJ.lockMobileOperator?`<div class="fld"><label>Allowed operator codes (MCC-MNC, one per line)</label><textarea data-hj="operatorCodes" spellcheck="false" autocapitalize="off">${esc(HJ.operatorCodes)}</textarea><div class="btns" style="padding:8px 0 0;border:0"><button class="btn sm" data-act="useSim">Use my SIM</button></div></div>`:'')
++`<label class="row off"><div class="t"><b>Attest device</b><small>Needs Google Play Integrity setup. Not available in this build.</small></div><input type="checkbox" class="sw" disabled></label>`
++hc('Block rooted device','blockRooted','Basic root checks. Not foolproof.')
++hc('Play Store installation only','playStoreOnly','Refuses APKs installed from outside Google Play.')
++hc('Device ID lock','deviceIdLock','Works only on the Device IDs listed below.')
++(HJ.deviceIdLock?`<div class="fld"><label>Allowed Device IDs (one per line)</label><textarea data-hj="deviceIds" spellcheck="false" autocapitalize="off" placeholder="JV-XXXX-XXXX-XXXX-XXXX">${esc(HJ.deviceIds)}</textarea><div class="h">Ask each user for the ID shown in Menu → Device ID.</div></div>`:'')
++hc('Set expiry date','expiry','The config stops working after this date.')
++(HJ.expiry?hf('Expiry date (works through the end of this day)','expiryDate','date'):'')
++hc('Login SSH using Device ID','loginSshDeviceId','The SSH username becomes each user\'s Device ID. Create matching accounts on your server.')
++hc('Disable user overwrite tunnel type and server','disableUserOverwrite','Users cannot change the tunnel type or server.')
++hc('Disallow torrent','disallowTorrent','Blocks common BitTorrent ports and tracker names. Best effort only.')
++hc('Gaming mode (only games use VPN)','gamingMode','Only installed game apps are routed through the VPN.')
++`<div class="note" style="padding:10px 16px">These checks run inside the app. They stop normal users but cannot stop someone who modifies the APK; use server-side limits for anything sensitive.</div>`)
 +card('Message / Notes for users',`<div class="fld"><textarea data-hj="notes" placeholder="Optional instructions for users">${esc(HJ.notes)}</textarea></div>`)
 +card('Save HJ config',`<div class="btns" style="flex-direction:column"><button class="btn pri" data-act="saveHJ">Save .HJ</button><button class="btn" data-act="saveBothHJ">Save locked & unlocked</button><button class="btn" data-act="shareHJ">Save & share</button><button class="btn" data-act="saveCloudHJ">Upload to cloud and get link</button><button class="btn" data-act="importHJ">Import .HJ</button></div><div class="note">Locked files use PBKDF2-HMAC-SHA256 and AES-256-GCM authenticated encryption. Keep the password separate from the file. Unlocked exports contain readable configuration data. Client-side locks cannot make a modified APK impossible; sensitive enforcement needs server-side verification.</div>`)
 },
@@ -238,11 +256,11 @@ return card('Guides',h.map(([a,b])=>`<details><summary>${a}</summary><p>${b}</p>
 
 about(){return card('',`<div class="st" style="display:block"><b style="font-size:22px">JUAN VPN</b><div style="color:var(--ac);font-size:13px">Version ${VER}</div><p style="color:#c3cfe2">Use only with servers and networks you own or are authorised to use.</p></div>`+['Privacy policy','Terms of service','Support','Open-source licences'].map(x=>`<div class="row"><div class="t"><b>${x}</b></div></div>`).join(''))}
 };
-const T={home:'JUAN VPN',tunnel:'Tunnel type',xserver:'Proxy server',ssh:'SSH server',tls:'Proxy and TLS',payload:'Payload',dns:'DNS and routing',apps:'Apps filter',settings:'Settings',servers:'Servers',exporter:'Config Exporter',log:'JUAN VPN',tools:'JUAN VPN',help:'JUAN VPN',about:'About'};
-const TAB=['home','log','tools','help'],PAR={exporter:'servers',apps:'dns',tunnel:'home',xserver:'home',ssh:'home',tls:'home',payload:'home',dns:'home'};
-const MENU=[['home','Home'],['servers','Servers'],['ssh','SSH server'],['xserver','V2Ray / Shadowsocks server'],['tunnel','Tunnel type'],['payload','Payload'],['dns','DNS and routing'],0,['log','Logs'],['tools','Tools'],['settings','Settings'],['help','Help'],['about','About']];
+const T={home:'JUAN VPN',tunnel:'Tunnel type',xserver:'Proxy server',ssh:'SSH server',tls:'Proxy and TLS',payload:'Payload',dns:'DNS and routing',apps:'Apps filter',settings:'Settings',servers:'Servers',exporter:'Config Exporter',deviceid:'Device ID',log:'JUAN VPN',tools:'JUAN VPN',help:'JUAN VPN',about:'About'};
+const TAB=['home','log','tools','help'],PAR={deviceid:'home',exporter:'servers',apps:'dns',tunnel:'home',xserver:'home',ssh:'home',tls:'home',payload:'home',dns:'home'};
+const MENU=[['home','Home'],['servers','Servers'],['ssh','SSH server'],['xserver','V2Ray / Shadowsocks server'],['tunnel','Tunnel type'],['payload','Payload'],['dns','DNS and routing'],0,['log','Logs'],['tools','Tools'],['deviceid','Device ID'],['settings','Settings'],['help','Help'],['about','About']];
 
-function render(){const y=scrollY;const hiddenWhenLocked=['tunnel','xserver','ssh','tls','payload','dns','tools'];$('#v').innerHTML=S._hjLocked&&hiddenWhenLocked.includes(cur)?card('Configuration locked','<div class="fld">Server details, host names, payloads and credentials are hidden. This profile can connect, but its settings cannot be viewed or edited.</div>'):V[cur]();$('#ttl').textContent=T[cur];if(S._hjLocked)$('#v').querySelectorAll('input:not(#fi),textarea,select').forEach(x=>x.disabled=true);else{const locks={payload:['payload'],remoteProxy:['pHost','pPort'],proxyAuth:['pUser','pPass'],sni:['sni','xSni'],sshHostPort:['sshHost','sshPort'],sshAuth:['user','pass','key','keyPass'],v2Editor:['xProto'],v2ServerPort:['xHost','xPort'],v2Password:['xSecret'],disableUserOverwrite:['tunnel','xHost','xPort','sshHost','sshPort','xProto'],dnsResolver:['dnsMode','dns1','dns2'],dnsttSettings:['routes','excl']};Object.entries(locks).forEach(([k,fields])=>{if(HJ[k])fields.forEach(f=>$('#v').querySelectorAll(`[data-k="${f}"]`).forEach(x=>x.disabled=true))})}
+function render(){const y=scrollY;const hiddenWhenLocked=['tunnel','xserver','ssh','tls','payload','dns','tools'];$('#v').innerHTML=S._hjLocked&&hiddenWhenLocked.includes(cur)?card('Configuration locked','<div class="fld">Server details, host names, payloads and credentials are hidden. This profile can connect, but its settings cannot be viewed or edited.</div>'):V[cur]();$('#ttl').textContent=T[cur];if(S._hjLocked)$('#v').querySelectorAll('input:not(#fi),textarea,select').forEach(x=>x.disabled=true);else{const locks={payload:['payload'],remoteProxy:['pHost','pPort'],proxyAuth:['pUser','pPass'],sni:['sni','xSni'],sshHostPort:['sshHost','sshPort'],sshAuth:['user','pass','key','keyPass'],v2Editor:['xProto'],v2ServerPort:['xHost','xPort'],v2Password:['xSecret'],disableUserOverwrite:['tunnel','xHost','xPort','sshHost','sshPort','xProto'],dnsResolver:['dnsMode','dns1','dns2'],dnsttSettings:['routes','excl']};Object.entries(locks).forEach(([k,fields])=>{if(S._imported&&HJ[k])fields.forEach(f=>$('#v').querySelectorAll(`[data-k="${f}"]`).forEach(x=>x.disabled=true))})}
 const tab=TAB.includes(cur),sub=!tab&&cur!=='servers'&&cur!=='settings'&&cur!=='about'||PAR[cur];
 $('#tabs').style.display=tab?'flex':'none';$('#tabs').innerHTML=TAB.map(t=>`<button class="${t===cur?'on':''}" data-go="${t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join('');
 $('#lead').innerHTML=ic(tab?'menu':'back');$('#lead').dataset.mode=tab?'menu':'back';$('#gear').innerHTML=ic('gear');$('#gear').style.visibility=tab?'visible':'hidden';$('#quick').innerHTML=ic('plus');$('#quick').style.visibility=tab?'visible':'hidden';scrollTo(0,y)}
@@ -255,16 +273,33 @@ $('#gear').onclick=()=>nav('settings');$('#quick').onclick=()=>ACT.quick();
 /* actions */
 function validate(){const e=[];if(S.tunnel==='hy'){e.push('Hysteria needs a QUIC engine that is not bundled in this build');return e}
 if(S.tunnel!=='ssh'){if(!S.xHost.trim())e.push('Server address is required');const p=+S.xPort;if(!(p>0&&p<65536))e.push('Server port must be 1–65535');if(!S.xSecret.trim())e.push(S.tunnel==='ss'||S.xProto==='trojan'?'Password is required':'UUID is required');if(S.tunnel==='v2'&&S.xProto==='trojan'&&!S.xTls)e.push('Trojan requires TLS');return e}
-if(!S.sshHost.trim())e.push('SSH host is required');const p=+S.sshPort;if(!(p>0&&p<65536))e.push('SSH port must be 1–65535');if(!S.user.trim())e.push('SSH username is required');if(!S.pass&&!S.key)e.push('Enter an SSH password or private key');if(['http','socks5','tls','ws'].includes(S.from)&&!S.pHost.trim())e.push('Proxy host is required');if((S.from==='tls'||S.from==='sni')&&!S.sni.trim())e.push('SNI is required for TLS');return e}
+if(!S.sshHost.trim())e.push('SSH host is required');const p=+S.sshPort;if(!(p>0&&p<65536))e.push('SSH port must be 1–65535');if(!S.user.trim()&&!(S._imported&&HJ.loginSshDeviceId))e.push('SSH username is required');if(!S.pass&&!S.key)e.push('Enter an SSH password or private key');if(['http','socks5','tls','ws'].includes(S.from)&&!S.pHost.trim())e.push('Proxy host is required');if((S.from==='tls'||S.from==='sni')&&!S.sni.trim())e.push('SNI is required for TLS');return e}
 const TPL={ws:'GET wss://[host] HTTP/1.1[crlf]Host: [host][crlf]Connection: upgrade[crlf]Upgrade: websocket[crlf][crlf]',connect:'CONNECT [host]:443 HTTP/1.1[crlf]Host: [host][crlf][crlf]',get:'GET / HTTP/1.1[crlf]Host: [host][crlf][crlf]'};
+const RR=['lockConfig','expiry','deviceIdLock','lockMobileOperator'];
+const deviceId=()=>{try{return B()&&B().deviceId?B().deviceId():'Open in the Android app'}catch(e){return '—'}};
+const idList=t=>String(t||'').split(/[\s,;]+/).map(x=>x.trim()).filter(Boolean);
+function policyObj(){if(!S._imported)return null;const p={};
+if(HJ.mobileDataOnly)p.mobileDataOnly=true;
+if(HJ.lockMobileOperator&&idList(HJ.operatorCodes).length)p.operators=idList(HJ.operatorCodes);
+if(HJ.blockRooted)p.blockRooted=true;
+if(HJ.playStoreOnly)p.playStoreOnly=true;
+if(HJ.deviceIdLock&&idList(HJ.deviceIds).length)p.deviceIds=idList(HJ.deviceIds);
+if(HJ.expiry&&HJ.expiryDate)p.expiry=HJ.expiryDate;
+if(HJ.loginSshDeviceId)p.loginSshDeviceId=true;
+if(HJ.disallowTorrent)p.disallowTorrent=true;
+if(HJ.gamingMode)p.gamingMode=true;
+return p}
 function hjConfig(locked){
 const opts={...HJ,lockConfig:!!locked};delete opts.password;delete opts.confirmPassword;if(opts.lockAll){['payload','remoteProxy','proxyAuth','sni','sshHostPort','sshAuth','v2Editor','v2ServerPort','v2Password','dnsResolver','dnsttSettings'].forEach(k=>opts[k]=true)}
-const profile={...S};delete profile._hjLocked;
+const profile={...S};delete profile._hjLocked;delete profile._imported;
 return {app:'JUAN VPN',schema:1,name:(HJ.fileName||'juanvpn-config'),profile,exportOptions:opts,notes:String(HJ.notes||''),createdAt:new Date().toISOString()};
 }
 function hjName(suffix=''){let n=(HJ.fileName||'juanvpn-config').trim().replace(/[^A-Za-z0-9._-]+/g,'-').replace(/^\.+|\.+$/g,'')||'juanvpn-config';n=n.replace(/\.HJ$/i,'');return n+suffix+'.HJ'}
 function clearHJPassword(){HJ.password='';HJ.confirmPassword='';const a=document.querySelector('[data-hj="password"]'),b=document.querySelector('[data-hj="confirmPassword"]');if(a)a.value='';if(b)b.value='';saveHJ()}
 function makeHJText(locked){
+if(HJ.expiry&&!/^\d{4}-\d{2}-\d{2}$/.test(HJ.expiryDate||''))throw Error('Choose an expiry date');
+if(HJ.deviceIdLock&&!idList(HJ.deviceIds).length)throw Error('Add at least one Device ID for the device lock');
+if(HJ.lockMobileOperator&&!idList(HJ.operatorCodes).length)throw Error('Add at least one operator code (MCC-MNC) for the operator lock');
 if(!HJ.includeSSH&&!HJ.includeV2Ray&&!HJ.includeHysteria&&!HJ.includeShadowsocks)throw Error('Select at least one protocol to export');
 const activeFlag=S.tunnel==='ssh'?'includeSSH':S.tunnel==='v2'?'includeV2Ray':S.tunnel==='ss'?'includeShadowsocks':'includeHysteria';
 if(!HJ[activeFlag])throw Error('Enable the current tunnel type in Export Config');
@@ -281,7 +316,7 @@ function applyHJConfig(config,locked){
 const profile=config.profile||config;
 if(!profile||typeof profile!=='object')throw Error('HJ profile is missing');
 const uiLocked=!!locked||!!(config.exportOptions&&(config.exportOptions.lockConfig||config.exportOptions.lockAll));
-S={...D,...profile,_hjLocked:uiLocked};
+S={...D,...profile,_hjLocked:uiLocked,_imported:true};
 
 if(B()&&B().saveSecrets)B().saveSecrets(JSON.stringify(Object.fromEntries(SECRET.map(k=>[k,S[k]||'']))));
 HJ={...HJ_D,...(config.exportOptions||{}),notes:String(config.notes??config.exportOptions?.notes??''),password:'',confirmPassword:''};saveHJ();save();
@@ -294,6 +329,9 @@ if(box.locked){pendingHJText=text;modal(`<h2>Unlock JUAN HJ config</h2><p>This f
 else {const raw=B()&&B().openHJ?B().openHJ(text,''):box.config;if(String(raw).startsWith('ERROR:'))throw Error(String(raw).slice(6));applyHJConfig(typeof raw==='string'?JSON.parse(raw):raw,false)}
 }
 const ACT={
+copyId(){B()&&B().copyText?(B().copyText(deviceId()),toast('Device ID copied')):toast('Available inside the Android app')},
+shareId(){B()&&B().shareText?B().shareText('My JUAN VPN Device ID: '+deviceId()):toast('Available inside the Android app')},
+useSim(){const c=B()&&B().simOperator?B().simOperator():'';if(!c){toast('No SIM detected');return}HJ.operatorCodes=(String(HJ.operatorCodes||'').trim()?HJ.operatorCodes.trim()+'\n':'')+c;saveHJ();render()},
 quick(){modal(`<h2>Configuration actions</h2><div class="quick-actions"><button class="btn pri" data-act="saveQuick">Save current profile<span>Keep it in Saved profiles</span></button><button class="btn" data-act="importHJ">Import .HJ<span>Load a configuration file</span></button><button class="btn" data-act="openExporter">Export .HJ<span>Create a locked or unlocked file</span></button><button class="btn" data-act="openServers">Saved profiles<span>Open saved configurations</span></button><button class="btn bad" data-act="askReset">Reset current config<span>Clear server and choose another protocol</span></button></div><div class="btns"><button class="btn sm" data-act="mdclose">Close</button></div>`)},
 askReset(){modal(`<h2>Reset current configuration?</h2><p>This disconnects the VPN and clears the active server, credentials, payload, proxy, SNI and current protocol. Saved profiles and .HJ export settings will remain.</p><div class="btns"><button class="btn" data-act="mdclose">Cancel</button><button class="btn bad" data-act="confirmReset">Reset configuration</button></div>`)},
 confirmReset(){try{if(B()&&B().disconnect)B().disconnect();S={...D};S._hjLocked=false;SECRET.forEach(k=>S[k]='');if(B()&&B().saveSecrets)B().saveSecrets(JSON.stringify(Object.fromEntries(SECRET.map(k=>[k,'']))));save();ST={state:'DISCONNECTED',detail:'',error:''};unmodal();log('Current configuration reset');toast('Configuration reset. Choose a new protocol or import a file.');nav('home')}catch(e){toast('Reset failed: '+e.message)}},
@@ -305,7 +343,7 @@ forget(){S.known='';save();B()&&B().forgetHostKey&&B().forgetHostKey(S.sshHost,S
 mdclose(){unmodal();render()},hkyes(){B()&&B().hostKeyAnswer&&B().hostKeyAnswer(true);unmodal()},hkno(){B()&&B().hostKeyAnswer&&B().hostKeyAnswer(false);unmodal()},
 start(){const e=validate();if(e.length){ST.error=e[0];log('Validation failed: '+e[0]);render();return}
 ST={state:'CONNECTING',detail:'Starting…',error:''};log('Connect requested for '+S.name);render();
-if(B()&&B().connect)B().connect(JSON.stringify(S));else{ST={state:'ERROR',detail:'',error:'Native tunnel engine is not attached to this UI.'};log('No native bridge: cannot connect');render()}},
+if(B()&&B().connect)B().connect(JSON.stringify({...S,_policy:policyObj()}));else{ST={state:'ERROR',detail:'',error:'Native tunnel engine is not attached to this UI.'};log('No native bridge: cannot connect');render()}},
 stop(){log('Disconnect requested');B()&&B().disconnect&&B().disconnect();ST={state:'DISCONNECTED',detail:'',error:''};render()},
 notif(){B()&&B().notifPerm?B().notifPerm():toast('Available inside the Android app')},
 batt(){B()&&B().batteryHelp?B().batteryHelp():toast('Available inside the Android app')},
@@ -336,11 +374,11 @@ if(B()&&B().tool){toolOut='Running…';render();B().tool(d.tool,JSON.stringify({
 else if(d.use!=null){const L=JSON.parse(localStorage.getItem('juan.l')||'[]');S={...D,...L[d.use]};save();toast('Profile loaded');nav('home')}
 else if(d.del!=null){const L=JSON.parse(localStorage.getItem('juan.l')||'[]');L.splice(d.del,1);localStorage.setItem('juan.l',JSON.stringify(L));render()}});
 document.addEventListener('input',e=>{const el=e.target,d=el.dataset;
-if(d.hj){HJ[d.hj]=el.type==='checkbox'?el.checked:el.value;saveHJ();if(d.hj==='lockConfig')render();return}
+if(d.hj){HJ[d.hj]=el.type==='checkbox'?el.checked:el.value;saveHJ();if(RR.includes(d.hj))render();return}
 if(d.app){const s=new Set(S.apps);el.checked?s.add(d.app):s.delete(d.app);S.apps=[...s];save();return}
 if(!d.k)return;S[d.k]=el.type==='checkbox'?el.checked:el.value;if(d.k!=='tHost')save();
 if(SECRET.includes(d.k)&&B()&&B().saveSecrets)B().saveSecrets(JSON.stringify(Object.fromEntries(SECRET.map(k=>[k,S[k]||'']))));
 if(d.re){render()}else if(['sni','pHost','sshHost','payload'].includes(d.k)){const p=document.querySelector('.pv');if(p)p.innerHTML=preview()}});
-document.addEventListener('change',e=>{if(e.target.dataset.hj){HJ[e.target.dataset.hj]=e.target.type==='checkbox'?e.target.checked:e.target.value;saveHJ();if(e.target.dataset.hj==='lockConfig')render();return}if(e.target.id!=='fi')return;const fl=e.target.files[0];if(!fl)return;fl.text().then(t=>{window.JuanUI.importFile(t);e.target.value=''})});
+document.addEventListener('change',e=>{if(e.target.dataset.hj){HJ[e.target.dataset.hj]=e.target.type==='checkbox'?e.target.checked:e.target.value;saveHJ();if(RR.includes(e.target.dataset.hj))render();return}if(e.target.id!=='fi')return;const fl=e.target.files[0];if(!fl)return;fl.text().then(t=>{window.JuanUI.importFile(t);e.target.value=''})});
 render();
 </script></body></html>

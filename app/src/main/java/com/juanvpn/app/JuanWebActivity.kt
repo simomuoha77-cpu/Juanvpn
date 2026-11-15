@@ -229,6 +229,17 @@ class JuanWebActivity : Activity() {
             continueVpnPermissionFlow()
         }
         @JavascriptInterface fun saveSecrets(j: String) { JuanSecrets.save(applicationContext, j) }
+        @JavascriptInterface fun deviceId(): String = DeviceId.get(applicationContext)
+        @JavascriptInterface fun simOperator(): String =
+            (getSystemService(android.telephony.TelephonyManager::class.java)?.simOperator ?: "")
+        @JavascriptInterface fun copyText(text: String) = runOnUiThread {
+            (getSystemService(android.content.ClipboardManager::class.java))
+                ?.setPrimaryClip(android.content.ClipData.newPlainText("JUAN VPN", text))
+        }
+        @JavascriptInterface fun shareText(text: String) = runOnUiThread {
+            try { startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), "Share")) }
+            catch (e: Exception) { JuanBus.log("Share failed: ${e.message}") }
+        }
         @JavascriptInterface fun forgetHostKey(host: String, port: String) {
             val label = if (port == "22") host else "[$host]:$port"
             getSharedPreferences("juan_trust", MODE_PRIVATE).edit().remove(label).apply()

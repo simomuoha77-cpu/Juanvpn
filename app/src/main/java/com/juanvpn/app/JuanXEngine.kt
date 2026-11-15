@@ -680,6 +680,7 @@ class JuanXEngine(
                 else -> return@use
             }
             val tport = (inp.read() shl 8) or inp.read()
+            if (JuanPolicy.blocked(host, tport)) { out.write(byteArrayOf(5, 2, 0, 1, 0, 0, 0, 0, 0, 0)); return@use }
             val l = try { openLink(host, tport).also { failures.set(0) } } catch (e: Exception) {
                 failures.incrementAndGet()
                 out.write(byteArrayOf(5, 5, 0, 1, 0, 0, 0, 0, 0, 0)); return@use
