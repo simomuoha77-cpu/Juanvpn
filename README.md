@@ -88,3 +88,10 @@ Fixes the VMess AEAD response-header KDF inputs: response-header keys are derive
 
 - The cloud result shows link, key and emoji key only (no app URI).
 - **Config code (no server):** Config exporter -> *Copy config code*. Produces a `JUAN1:...` text that contains the whole config. Paste it in *Import from cloud key or code*. A cloud server is only needed for the short key / emoji key.
+
+## Version 2.5.0
+
+- **Import config** is now its own screen (Menu, Servers, or the + button): *Internal Storage* (opens the file picker) and *Cloud Config* (key, emoji key or `JUAN1:` code). The import buttons were removed from the exporter.
+- **Save to cloud (code)** keeps Normal / Burn after import / Set Expiry Date, and now shows only the key and emoji key (no link).
+- **Locked configs cannot be exported or opened in the exporter.**
+- Set `DEFAULT_SERVER` in `JuanCloud.kt` to let users import keys without configuring a server.

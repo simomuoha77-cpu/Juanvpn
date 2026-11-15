@@ -315,6 +315,10 @@ class JuanWebActivity : Activity() {
                 catch (e: Exception) { JSONObject().put("ok", false).put("error", e.message ?: e.javaClass.simpleName) }
             JuanBus.log(if (r.optBoolean("ok")) "Cloud: config downloaded" else "Cloud: download failed: ${r.optString("error")}")
             js("JuanUI.cloudResult(${q(reqId)},${q(r.toString())})") }.start() }
+        @JavascriptInterface fun storageInfo(): String = try {
+            val st = android.os.StatFs(android.os.Environment.getExternalStorageDirectory().path)
+            "Free %.1f GB of %.1f GB".format(st.availableBytes / 1e9, st.totalBytes / 1e9)
+        } catch (e: Exception) { "Choose a .HJ file" }
         @JavascriptInterface fun makeCode(text: String): String = try { JuanCloud.encodeCode(text) } catch (e: Exception) { "ERROR:${e.message ?: "Could not create code"}" }
         @JavascriptInterface fun cloudPing(reqId: String, server: String) { Thread {
             val r = try { JSONObject().put("ok", true).put("text", JuanCloud.ping(server)) }

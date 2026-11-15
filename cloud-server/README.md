@@ -30,9 +30,9 @@ Worker -> Settings -> Domains & Routes -> Add custom domain. Use that address as
 
 ## What users get
 
-Save to cloud shows a link, a key, an emoji key and a `juanvpn://` app link. To import: Servers -> Import from
-cloud key (paste any of them), or open the link page and tap **Open in JUAN VPN**. The key and emoji key alone only
-work with the server saved in the app's Settings; the link and app link carry the server address.
+Save to cloud shows a **key** and an **emoji key** (no link). To import: Import config -> Cloud Config, then paste the key,
+the emoji key, or a `JUAN1:` config code. The key needs to know your server: either each user saves it under
+Settings -> Cloud server, or you set `DEFAULT_SERVER` in `JuanCloud.kt` once and rebuild, so users need no setup.
 
 ## Limits you should know
 

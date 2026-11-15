@@ -31,6 +31,12 @@ object JuanCloud {
     private val rnd = SecureRandom()
     private const val CODE_PREFIX = "JUAN1:"
 
+    /**
+     * Optional: put your cloud server here (for example "https://juan-cloud.yourname.workers.dev") and rebuild.
+     * Then every user of your app can import cloud keys without setting a server in Settings.
+     */
+    const val DEFAULT_SERVER = ""
+
     /** Offline config code: the whole (already locked or unlocked) .HJ text, compressed. No server involved. */
     fun encodeCode(text: String): String {
         val d = java.util.zip.Deflater(9, true)
@@ -206,7 +212,7 @@ object JuanCloud {
     /** Uploads the encrypted config. mode: normal | burn | expiry (expiresSec = unix seconds). */
     fun upload(serverRaw: String, hjText: String, mode: String, expiresSec: Long): String {
         require(mode == "normal" || mode == "burn" || mode == "expiry") { "Unknown cloud mode" }
-        val server = base(serverRaw)
+        val server = base(serverRaw.ifBlank { DEFAULT_SERVER })
         require(hjText.length <= 200_000) { "Config is too large to upload" }
         var lastErr = "Upload failed"
         repeat(3) {
@@ -216,7 +222,7 @@ object JuanCloud {
             val (code, body) = http("POST", "$server/api/put", j.toString())
             if (code in 200..299) {
                 return JSONObject()
-                    .put("link", "$server/$key").put("key", key).put("emoji", emoji(key))
+                    .put("key", key).put("emoji", emoji(key))
                     .toString()
             }
             if (code != 409) throw IllegalStateException(errorOf(code, body))
@@ -229,7 +235,7 @@ object JuanCloud {
     fun fetch(defaultServer: String, input: String): String {
         if (input.trim().startsWith(CODE_PREFIX, true)) return decodeCode(input)   // offline code, no server
         val ref = parse(input)
-        val server = ref.server ?: base(defaultServer)
+        val server = ref.server ?: base(defaultServer.ifBlank { DEFAULT_SERVER })
         val (code, body) = http("GET", "$server/api/get/" + token(ref.key), null)
         if (code == 404) throw IllegalStateException("Config not found. It may have expired or was already burned (one-time).")
         if (code !in 200..299) throw IllegalStateException(errorOf(code, body))
