@@ -13,11 +13,12 @@ android {
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
 
-    // JSch and Bouncy Castle both package this multi-release JAR metadata.
-    // It is not needed in the APK; exclude the duplicate resource at merge time.
+    // Android uses the base classes from these multi-release JARs. Exclude
+    // Java-version-specific META-INF entries to prevent duplicate OSGi
+    // manifest resources from JSch and Bouncy Castle during APK merging.
     packaging {
         resources {
-            excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+            excludes += "/META-INF/versions/**"
         }
     }
 }
