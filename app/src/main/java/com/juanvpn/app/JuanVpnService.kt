@@ -20,8 +20,17 @@ import java.util.concurrent.TimeUnit
 
 /** UI <-> service channel. */
 object JuanBus {
+    @Volatile private var appContext: Context? = null
     @Volatile var state = "DISCONNECTED"; @Volatile var detail = ""; @Volatile var error = ""
-    val logs = ArrayList<String>()
+    val logs = java.util.Collections.synchronizedList(ArrayList<String>())
+    fun init(context: Context) {
+        appContext = context.applicationContext
+        synchronized(logs) {
+            if (logs.isEmpty()) {
+                logs.addAll(AppLog.read(context).lineSequence().filter { it.isNotBlank() }.takeLast(400))
+            }
+        }
+    }
     @Volatile var onState: ((String, String, String) -> Unit)? = null
     @Volatile var onLog: ((String) -> Unit)? = null
     @Volatile var onStats: ((JSONObject) -> Unit)? = null
@@ -31,7 +40,12 @@ object JuanBus {
     @Volatile var latch: java.util.concurrent.CountDownLatch? = null
     @Synchronized fun log(m: String) {
         val l = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date()) + "  " + m
-        logs.add(l); if (logs.size > 400) logs.removeAt(0); onLog?.invoke(l)
+        synchronized(logs) {
+            logs.add(l)
+            while (logs.size > 400) logs.removeAt(0)
+        }
+        appContext?.let { AppLog.write(it, m) }
+        onLog?.invoke(l)
     }
 }
 
@@ -55,6 +69,11 @@ object TunEngine {
 }
 
 class JuanVpnService : VpnService() {
+    override fun onCreate() {
+        super.onCreate()
+        JuanBus.init(applicationContext)
+    }
+
     companion object { const val START = "juan.START"; const val STOP = "juan.STOP"; const val CFG = "cfg"; private const val NID = 42 }
 
     private var engine: JuanSshEngine? = null
@@ -67,6 +86,10 @@ class JuanVpnService : VpnService() {
     override fun onStartCommand(i: Intent?, f: Int, id: Int): Int {
         if (i?.action == STOP) { teardown(); post("DISCONNECTED", "", ""); stopSelf(); return START_NOT_STICKY }
         val json = i?.getStringExtra(CFG) ?: run { stopSelf(); return START_NOT_STICKY }
+        if (JuanBus.state == "CONNECTING" || JuanBus.state == "CONNECTED") {
+            JuanBus.log("Ignored duplicate connection start request")
+            return START_NOT_STICKY
+        }
         channel()
         ServiceCompat.startForeground(this, NID, notif("Connecting…"),
             if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)

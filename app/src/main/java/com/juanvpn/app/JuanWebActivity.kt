@@ -21,10 +21,13 @@ class JuanWebActivity : Activity() {
     private lateinit var web: WebView
     private var pending: String? = null
     private var exportText: String? = null
+    private var waitingForNotification = false
+    private var connectionRequestInFlight = false
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
+        JuanBus.init(applicationContext)
         web = WebView(this).apply {
             setBackgroundColor(0xff0a111f.toInt())
             settings.javaScriptEnabled = true; settings.domStorageEnabled = true
@@ -51,7 +54,10 @@ class JuanWebActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        JuanBus.onState = { s, d, e -> js("JuanUI.setState(${q(s)},${q(d)},${q(e)})") }
+        JuanBus.onState = { s, d, e ->
+            if (s == "CONNECTED" || s == "ERROR" || s == "DISCONNECTED") connectionRequestInFlight = false
+            js("JuanUI.setState(${q(s)},${q(d)},${q(e)})")
+        }
         JuanBus.onLog = { l -> js("JuanUI.log(${q(l)})") }
         JuanBus.onStats = { o -> js("JuanUI.stats($o)") }
         JuanBus.onHostKey = { h, t, f -> js("JuanUI.hostKey(${q(h)},${q(t)},${q(f)})") }
@@ -64,31 +70,85 @@ class JuanWebActivity : Activity() {
 
     override fun onPause() { JuanBus.onState = null; JuanBus.onLog = null; JuanBus.onStats = null; JuanBus.onHostKey = null; super.onPause() }
 
-    private fun startVpn(json: String) = ContextCompat.startForegroundService(this,
-        Intent(this, JuanVpnService::class.java).setAction(JuanVpnService.START).putExtra(JuanVpnService.CFG, json))
+    private fun startVpn(json: String) {
+        try {
+            ContextCompat.startForegroundService(this,
+                Intent(this, JuanVpnService::class.java).setAction(JuanVpnService.START).putExtra(JuanVpnService.CFG, json))
+        } catch (e: Exception) {
+            connectionRequestInFlight = false
+            val message = "Could not start VPN service: ${e.message ?: e.javaClass.simpleName}"
+            JuanBus.log(message)
+            js("JuanUI.setState('ERROR','',${q(message)})")
+        }
+    }
 
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(req: Int, res: Int, data: Intent?) {
         super.onActivityResult(req, res, data)
         when (req) {
-            700 -> { val p = pending; pending = null
+            700 -> {
+                val p = pending
+                pending = null
+                connectionRequestInFlight = false
                 if (res == RESULT_OK && p != null) startVpn(p)
-                else js("JuanUI.setState('ERROR','',${q("VPN permission was denied")})") }
+                else js("JuanUI.setState('ERROR','',${q("VPN permission was denied")})")
+            }
             701 -> data?.data?.let { u -> exportText?.let { t -> contentResolver.openOutputStream(u)?.use { it.write(t.toByteArray()) } } }
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 703 && waitingForNotification) {
+            waitingForNotification = false
+            continueVpnPermissionFlow()
+        }
+    }
+
+    private fun continueVpnPermissionFlow() {
+        val p = pending ?: return
+        try {
+            val consent = VpnService.prepare(this)
+            if (consent == null) {
+                pending = null
+                startVpn(p)
+            } else {
+                startActivityForResult(consent, 700)
+            }
+        } catch (e: Exception) {
+            pending = null
+            connectionRequestInFlight = false
+            val message = "Unable to request VPN permission: ${e.message ?: e.javaClass.simpleName}"
+            JuanBus.log(message)
+            js("JuanUI.setState('ERROR','',${q(message)})")
         }
     }
 
     inner class Bridge {
         @JavascriptInterface fun connect(json: String) = runOnUiThread {
-            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED)
+            if (connectionRequestInFlight || JuanBus.state == "CONNECTING" || JuanBus.state == "CONNECTED") {
+                js("JuanUI.log('A connection request is already active.')")
+                return@runOnUiThread
+            }
+            connectionRequestInFlight = true
+            pending = json
+            if (Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
+                waitingForNotification = true
                 requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 703)
-            val i = VpnService.prepare(this@JuanWebActivity)
-            if (i == null) startVpn(json) else { pending = json; startActivityForResult(i, 700) }
+                return@runOnUiThread
+            }
+            continueVpnPermissionFlow()
         }
         @JavascriptInterface fun saveSecrets(j: String) { JuanSecrets.save(applicationContext, j) }
         @JavascriptInterface fun loadSecrets(): String = JuanSecrets.load(applicationContext)
         @JavascriptInterface fun hostKeyAnswer(ok: Boolean) { JuanBus.answer = ok; JuanBus.latch?.countDown() }
-        @JavascriptInterface fun disconnect() { startService(Intent(this@JuanWebActivity, JuanVpnService::class.java).setAction(JuanVpnService.STOP)) }
+        @JavascriptInterface fun disconnect() {
+            connectionRequestInFlight = false
+            pending = null
+            startService(Intent(this@JuanWebActivity, JuanVpnService::class.java).setAction(JuanVpnService.STOP))
+        }
         @JavascriptInterface fun notifPerm() = runOnUiThread {
             if (Build.VERSION.SDK_INT >= 33) requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 703)
         }

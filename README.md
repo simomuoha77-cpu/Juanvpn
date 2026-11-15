@@ -33,3 +33,16 @@ Strict host-key checking is enabled. Obtain the host key and fingerprint from yo
 ## Security
 
 Only use servers you own or are authorized to use. Exported profile JSON may contain credentials; store it securely and delete it when no longer needed. Location permission is not requested because it is not required for SSH tunnel operation.
+
+
+## Stability fixes in this source revision
+
+- The WebView activity is the only launcher; the legacy native activity is no longer a second launcher.
+- The obsolete legacy VPN service is no longer declared as a VPN service.
+- Android 13+ notification permission is requested and awaited before the VPN consent flow.
+- Duplicate Connect requests are rejected while a connection attempt is active.
+- Connection-service logs are persisted through `AppLog` and restored when the activity/service starts.
+
+## Important validation status
+
+These source changes address lifecycle and permission-flow defects visible in the supplied project. They do not prove that a remote SSH server accepts the credentials or that the native TUN engine works on a particular device. A release must still be built in GitHub Actions and tested on a physical Android device with an authorized SSH server. The native engine must be packaged for the device ABI, and the TUN-to-SOCKS forwarding path must pass an end-to-end traffic test.
