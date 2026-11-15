@@ -83,3 +83,8 @@ Fixes the VMess AEAD response-header KDF inputs: response-header keys are derive
 - **Import from cloud key** (Servers screen, exporter, or by tapping the link page / `juanvpn://` link) accepts the link, the key or the emoji key.
 - Configs are encrypted on the phone (AES-256-GCM, key derived from the cloud key). The server stores only ciphertext under a hashed token.
 - **You need your own server**: deploy `cloud-server/` (Cloudflare Worker + D1, free plan). See `cloud-server/README.md`. Set its address in Settings -> Cloud server, then tap Test server.
+
+## Version 2.4.1
+
+- The cloud result shows link, key and emoji key only (no app URI).
+- **Config code (no server):** Config exporter -> *Copy config code*. Produces a `JUAN1:...` text that contains the whole config. Paste it in *Import from cloud key or code*. A cloud server is only needed for the short key / emoji key.

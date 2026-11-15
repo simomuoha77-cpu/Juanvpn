@@ -5,7 +5,6 @@ import android.util.Base64
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.json.JSONObject
 import java.net.URL
-import java.net.URLEncoder
 import java.security.MessageDigest
 import java.security.SecureRandom
 import javax.crypto.Cipher
@@ -30,6 +29,36 @@ object JuanCloud {
     private const val KDF_ITER = 100_000
     private const val AAD = "JUAN-CLOUD|1"
     private val rnd = SecureRandom()
+    private const val CODE_PREFIX = "JUAN1:"
+
+    /** Offline config code: the whole (already locked or unlocked) .HJ text, compressed. No server involved. */
+    fun encodeCode(text: String): String {
+        val d = java.util.zip.Deflater(9, true)
+        d.setInput(text.toByteArray(Charsets.UTF_8)); d.finish()
+        val out = java.io.ByteArrayOutputStream(); val buf = ByteArray(4096)
+        while (!d.finished()) out.write(buf, 0, d.deflate(buf))
+        d.end()
+        return CODE_PREFIX + Base64.encodeToString(out.toByteArray(), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+    }
+
+    fun decodeCode(code: String): String {
+        val body = code.trim().substring(CODE_PREFIX.length).filter { !it.isWhitespace() }
+        val bytes = try { Base64.decode(body, Base64.URL_SAFE) } catch (_: Exception) { throw IllegalArgumentException("That config code is damaged") }
+        val inf = java.util.zip.Inflater(true)
+        inf.setInput(bytes)
+        val out = java.io.ByteArrayOutputStream(); val buf = ByteArray(4096)
+        try {
+            while (!inf.finished()) {
+                val n = inf.inflate(buf)
+                if (n == 0 && (inf.needsInput() || inf.needsDictionary())) break
+                out.write(buf, 0, n)
+                require(out.size() <= 2_000_000) { "Config code is too large" }
+            }
+        } catch (e: java.util.zip.DataFormatException) { throw IllegalArgumentException("That config code is damaged") }
+        finally { inf.end() }
+        require(out.size() > 0) { "That config code is damaged" }
+        return out.toString("UTF-8")
+    }
 
     fun newKey(): String = (1..8).map { ALPHA[rnd.nextInt(ALPHA.length)] }.joinToString("")
 
@@ -188,7 +217,6 @@ object JuanCloud {
             if (code in 200..299) {
                 return JSONObject()
                     .put("link", "$server/$key").put("key", key).put("emoji", emoji(key))
-                    .put("uri", "juanvpn://import?key=$key&server=" + URLEncoder.encode(server, "UTF-8"))
                     .toString()
             }
             if (code != 409) throw IllegalStateException(errorOf(code, body))
@@ -199,6 +227,7 @@ object JuanCloud {
 
     /** Downloads and decrypts a config. defaultServer is used when the input has no server in it. */
     fun fetch(defaultServer: String, input: String): String {
+        if (input.trim().startsWith(CODE_PREFIX, true)) return decodeCode(input)   // offline code, no server
         val ref = parse(input)
         val server = ref.server ?: base(defaultServer)
         val (code, body) = http("GET", "$server/api/get/" + token(ref.key), null)
