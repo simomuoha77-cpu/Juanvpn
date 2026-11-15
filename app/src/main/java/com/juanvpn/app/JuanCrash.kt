@@ -26,8 +26,8 @@ object JuanCrash {
         if (Build.VERSION.SDK_INT >= 30) try {
             val sp = c.getSharedPreferences("juan_crash", Context.MODE_PRIVATE)
             c.getSystemService(ActivityManager::class.java).getHistoricalProcessExitReasons(c.packageName, 0, 1).firstOrNull()?.let {
-                val bad = it.reason == ApplicationExitInfo.REASON_CRASH_NATIVE || it.reason == ApplicationExitInfo.REASON_CRASH ||
-                    it.reason == ApplicationExitInfo.REASON_ANR || it.reason == ApplicationExitInfo.REASON_SIGNALED
+                val bad = it.reason !in listOf(ApplicationExitInfo.REASON_EXIT_SELF, ApplicationExitInfo.REASON_USER_REQUESTED,
+                    ApplicationExitInfo.REASON_USER_STOPPED)
                 if (bad && it.timestamp > sp.getLong("ts", 0)) {
                     sp.edit().putLong("ts", it.timestamp).apply()
                     sb.append("\nLast exit: reason=${it.reason} status=${it.status} ${it.description ?: ""}")

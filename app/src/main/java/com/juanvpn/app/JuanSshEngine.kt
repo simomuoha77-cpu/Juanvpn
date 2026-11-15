@@ -132,6 +132,14 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
     }
 
     companion object {
+        fun transient(e: Throwable): Boolean {
+            val m = ((e.message ?: "") + " " + (e.cause?.message ?: "")).lowercase()
+            if (m.contains("auth") || m.contains("hostkey") || m.contains("host key") || m.contains("algorithm")) return false
+            return m.contains("proxy replied: http/1.1 5") || m.contains("proxy closed") || m.contains("closed by foreign host") ||
+                m.contains("timed out") || m.contains("timeout") || m.contains("connection reset") || m.contains("eof") ||
+                m.contains("socket closed") || m.contains("broken pipe") || m.contains("connection closed")
+        }
+
         fun friendly(e: Throwable): String {
             val m = e.message ?: e.javaClass.simpleName
             return when {
@@ -139,6 +147,7 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
                 m.contains("changed", true) && m.contains("HostKey", true) -> "SERVER HOST KEY CHANGED: this is not the server you trusted before. Do not continue unless the server admin confirms a key change."
                 m.contains("Algorithm negotiation fail", true) && m.contains("server_host_key") -> "The server's host key type differs from the saved one. Tap 'Forget trusted key' on the SSH server screen and connect again."
                 m.contains("Algorithm negotiation fail", true) -> "No common SSH algorithm with this server ($m)"
+                m.startsWith("Proxy replied: HTTP/1.1 5") -> "The proxy front returned a temporary server error ($m). The server behind it may be down or busy."
                 m.contains("HANDSHAKE_FAILURE", true) -> "The TLS server rejected the handshake. It may need a domain-name SNI (an IP address cannot be used), or it does not speak TLS on this port."
                 m.contains("ENETUNREACH", true) -> "No network path to the server. Check your internet connection."
                 m.contains("UnknownHostKey", true) -> "Unknown SSH host key: add the server's verified known_hosts record."

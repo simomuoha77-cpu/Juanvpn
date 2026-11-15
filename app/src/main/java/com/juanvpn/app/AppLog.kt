@@ -14,7 +14,7 @@ object AppLog {
         val stamp = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
         val old = prefs.getString(LOG_KEY, "").orEmpty()
         val next = (old + "[$stamp] $message\n").lines().takeLast(250).joinToString("\n")
-        prefs.edit().putString(LOG_KEY, next).apply()
+        prefs.edit().putString(LOG_KEY, next).commit()
     }
     fun read(context: Context): String =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(LOG_KEY, "")

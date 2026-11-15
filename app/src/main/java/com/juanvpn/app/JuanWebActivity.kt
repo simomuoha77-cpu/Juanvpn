@@ -27,9 +27,9 @@ class JuanWebActivity : Activity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
+        JuanBus.init(applicationContext)
         JuanCrash.install(this)
         JuanCrash.report(this)?.let { JuanBus.log(it) }
-        JuanBus.init(applicationContext)
         web = WebView(this).apply {
             setBackgroundColor(0xff0a111f.toInt())
             settings.javaScriptEnabled = true; settings.domStorageEnabled = true

@@ -63,6 +63,7 @@ object TunEngine {
             "mapdns:\n  address: $DNS\n  port: 53\n  network: 100.64.0.0\n  netmask: 255.192.0.0\n  cache-size: 10000\n" +
             "misc:\n  task-stack-size: 20480\n  connect-timeout: 5000\n  read-write-timeout: 60000\n  log-level: warn\n"
         )
+        JuanBus.log("TUN: loading native library")
         val k = try { Class.forName(CLS) } catch (_: ClassNotFoundException) {
             throw IllegalStateException("TUN engine not bundled: add hev-socks5-tunnel (hev.htproxy.TProxyService + libhev-socks5-tunnel.so)")
         }
@@ -112,6 +113,24 @@ class JuanVpnService : VpnService() {
         return START_NOT_STICKY
     }
 
+    /** Up to 3 attempts for temporary failures (proxy 5xx, drops, timeouts). Never retries bad credentials or host-key problems. */
+    private fun startWithRetry(c: JuanCfg): JuanSshEngine? {
+        var attempt = 0
+        while (true) {
+            attempt++
+            val eng = JuanSshEngine(c, JuanBus::log, trust()) { s -> protect(s) }
+            engine = eng
+            try { eng.start(); return eng } catch (ex: Throwable) {
+                eng.stop()
+                if (stopping || Thread.currentThread().isInterrupted) return null
+                if (attempt >= 3 || !JuanSshEngine.transient(ex)) throw ex
+                JuanBus.log("Attempt $attempt failed: ${JuanSshEngine.friendly(ex.cause ?: ex)} Retrying…")
+                post("CONNECTING", "Retrying ($attempt/3)", "")
+                Thread.sleep(2000)
+            }
+        }
+    }
+
     private fun connectFlow(json: String) {
         try {
             JuanBus.log("Connection worker started")
@@ -119,17 +138,17 @@ class JuanVpnService : VpnService() {
             c.validate()?.let { throw IllegalArgumentException(it) }
             if (stopping || Thread.currentThread().isInterrupted) return
             post("CONNECTING", "Opening SSH tunnel", "")
-            val e = JuanSshEngine(c, JuanBus::log, trust()) { s -> protect(s) }
-            engine = e
-            e.start()
+            val e = startWithRetry(c) ?: return
             if (stopping || Thread.currentThread().isInterrupted) { e.stop(); return }
             post("CONNECTING", "Starting TUN", "")
             val pfd = build(c) ?: throw IllegalStateException("VPN permission missing or revoked")
             tun = pfd
             if (stopping || Thread.currentThread().isInterrupted) return
+            JuanBus.log("TUN: interface up, starting native engine")
             TunEngine.start(this, pfd.fd, e.socksPort)
             JuanBus.log("TUN: packet engine started")
             post("CONNECTING", "Checking tunnel", "")
+            JuanBus.log("Tunnel: running traffic check")
             if (!e.probe()) throw IllegalStateException(e.probeError.ifBlank { "SSH is up but no traffic passed through the tunnel" })
             t0 = System.currentTimeMillis()
             post("CONNECTED", "${c.user}@${c.sshHost}", "")
