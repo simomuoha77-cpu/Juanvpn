@@ -73,7 +73,8 @@ object TunEngine {
             throw IllegalStateException("TUN engine not bundled: add hev-socks5-tunnel (hev.htproxy.TProxyService + libhev-socks5-tunnel.so)")
         }
         try {
-            k.getMethod("TProxyStartService", String::class.java, Int::class.javaPrimitiveType).invoke(null, cfg.absolutePath, fd)
+            val r = k.getMethod("TProxyStartService", String::class.java, Int::class.javaPrimitiveType).invoke(null, cfg.absolutePath, fd)
+            if (r == false) throw IllegalStateException("Native TUN engine refused to start (bad config or interface)")
             started = true
         } catch (e: java.lang.reflect.InvocationTargetException) {
             throw IllegalStateException("Native TUN engine failed to start: ${e.targetException?.message ?: e.message}", e.targetException ?: e)
