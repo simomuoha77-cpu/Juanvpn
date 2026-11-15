@@ -32,13 +32,13 @@ class TunnelService : VpnService() {
                 AppLog.setState(this, "SSH READY · LOCAL SOCKS5")
                 AppLog.write(this, "SSH authenticated; local SOCKS5 listening on 127.0.0.1:${profile.socksPort}")
                 getSystemService(NotificationManager::class.java).notify(
-                    41, notification("SSH ready · SOCKS5 127.0.0.1:${profile.socksPort}")
+                    41, notification("Connected · VPN active")
                 )
             } catch (e: Exception) {
                 AppLog.setState(this, "FAILED")
                 AppLog.write(this, "Connection failed: ${e.message ?: e.javaClass.simpleName}")
                 getSystemService(NotificationManager::class.java).notify(
-                    41, notification("Connection failed: ${e.message ?: "Check Logs"}")
+                    41, notification("Connection failed · Open JUAN VPN logs")
                 )
                 stopSelf()
             }

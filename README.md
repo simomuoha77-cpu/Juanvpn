@@ -74,8 +74,3 @@ Fixes the VMess AEAD response-header KDF inputs: response-header keys are derive
 - Unlocked `.HJ` exports are intentionally readable and should be shared only when that is intended.
 - Device attestation, root/Play Store/device-ID checks, expiry, operator lock, torrent filtering, gaming-only routing, Hysteria and DNSTT are metadata-only in this revision; they are not represented as active enforcement or working tunnel protocols.
 - Client-side encryption protects locked config files, but cannot make an Android APK impossible to reverse engineer, patch or repackage. Strong app-integrity enforcement requires a private release-signing key and server-side verification (for example, Play Integrity).
-
-
-## Version 2.3.1
-- Added visible Home-screen configuration actions: save current profile, import `.HJ`, and open the `.HJ` exporter.
-- Kept the existing Config Exporter and menu navigation; no tunnel engine code changed.

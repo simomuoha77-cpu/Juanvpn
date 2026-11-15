@@ -172,7 +172,7 @@ class JuanVpnService : VpnService() {
             JuanBus.log("Tunnel: running traffic check")
             if (!e.probe()) throw IllegalStateException(e.probeError.ifBlank { "The tunnel is up but no traffic passed through it" })
             t0 = System.currentTimeMillis()
-            post("CONNECTED", if (c.tunnel == "ssh") "${c.user}@${c.sshHost}" else "${c.xProto.uppercase()}@${c.xHost}", "")
+            post("CONNECTED", if (c.tunnel == "ssh") "SSH tunnel active" else "${c.xProto.uppercase()} tunnel active", "")
             startStats(e)
         } catch (ex: Throwable) {
             if (stopping || Thread.currentThread().isInterrupted) return
@@ -231,7 +231,24 @@ class JuanVpnService : VpnService() {
         JuanBus.state = s; JuanBus.detail = d; JuanBus.error = e
         JuanBus.log("State: $s${if (d.isNotEmpty()) " ($d)" else ""}")
         JuanBus.onState?.invoke(s, d, e)
-        getSystemService(NotificationManager::class.java).notify(NID, notif(if (e.isNotEmpty()) e else s.lowercase().replaceFirstChar { it.uppercase() } + if (d.isNotEmpty()) " · $d" else ""))
+        val safeNotification = when (s) {
+            "CONNECTED" -> "Connected · VPN active"
+            "CONNECTING" -> when {
+                d.contains("retry", ignoreCase = true) -> "Reconnecting…"
+                d.contains("SSH", ignoreCase = true) -> "Connecting · SSH"
+                d.contains("VMESS", ignoreCase = true) -> "Connecting · VMess"
+                d.contains("VLESS", ignoreCase = true) -> "Connecting · VLESS"
+                d.contains("TROJAN", ignoreCase = true) -> "Connecting · Trojan"
+                d.contains("Shadowsocks", ignoreCase = true) -> "Connecting · Shadowsocks"
+                d.contains("TUN", ignoreCase = true) -> "Starting secure tunnel…"
+                d.contains("Checking", ignoreCase = true) -> "Checking connection…"
+                else -> "Connecting…"
+            }
+            "ERROR" -> "Connection failed · Open JUAN VPN logs"
+            "DISCONNECTED" -> "Disconnected"
+            else -> "VPN status updated"
+        }
+        getSystemService(NotificationManager::class.java).notify(NID, notif(safeNotification))
     }
 
     private fun tunIsOpen(fd: Int): Boolean = fd >= 0 && try {

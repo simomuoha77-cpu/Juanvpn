@@ -190,7 +190,6 @@ class JuanWebActivity : Activity() {
         }
         @JavascriptInterface fun readLogs(): String = AppLog.read(applicationContext)
         @JavascriptInterface fun loadSecrets(): String = JuanSecrets.load(applicationContext)
-        @JavascriptInterface fun clearSecrets() { JuanSecrets.clear(applicationContext) }
         @JavascriptInterface fun hostKeyAnswer(ok: Boolean) { JuanBus.answer = ok; JuanBus.latch?.countDown() }
         @JavascriptInterface fun disconnect() {
             connectionRequestInFlight = false

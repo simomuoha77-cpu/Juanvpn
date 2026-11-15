@@ -64,17 +64,17 @@ details{border-top:1px solid var(--ln);padding:12px 16px}details:first-of-type{b
 .ap{display:flex;gap:12px;align-items:center;padding:11px 16px;border-top:1px solid var(--ln)}.ap .t{flex:1;min-width:0}.ap small{color:var(--mu);display:block;font-size:12px}
 #md{position:fixed;inset:0;background:#000b;z-index:50;display:none;align-items:flex-end;justify-content:center}#md.on{display:flex}
 .sheet{background:var(--s1);border:1px solid var(--ln);border-radius:18px 18px 0 0;width:100%;max-width:640px;padding:18px 16px calc(18px + env(safe-area-inset-bottom,0));max-height:90vh;overflow:auto}
-.sheet h2{margin:0 0 12px;font-size:17px}.sheet p{margin:6px 0;color:#c3cfe2;font-size:14px}
+.sheet h2{margin:0 0 12px;font-size:17px}.sheet p{margin:6px 0;color:#c3cfe2;font-size:14px}.quick-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}.quick-actions .btn{height:auto;min-height:54px;border-radius:12px;padding:10px 12px}.quick-actions .btn span{display:block;font-size:11px;font-weight:450;color:var(--mu);margin-top:3px}
 #toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0));transform:translateX(-50%) translateY(20px);background:#26354f;padding:10px 18px;border-radius:22px;opacity:0;transition:.2s;z-index:60;max-width:90vw;font-size:14px}
 #toast.on{opacity:1;transform:translateX(-50%)}
 </style></head>
 <body>
 <div id="dim"></div><aside id="dr"></aside>
-<header><div class="bar"><button class="ib" id="lead" aria-label="Menu"></button><h1 id="ttl">JUAN VPN</h1><button class="ib" id="gear" aria-label="Settings"></button></div><nav class="tabs" id="tabs"></nav></header>
+<header><div class="bar"><button class="ib" id="lead" aria-label="Menu"></button><h1 id="ttl">JUAN VPN</h1><button class="ib" id="gear" aria-label="Settings"></button><button class="ib" id="quick" aria-label="Config actions" title="Config actions"></button></div><nav class="tabs" id="tabs"></nav></header>
 <main id="v"></main><input type="file" id="fi" accept=".hj,.HJ,.json,application/json" hidden><div id="md"><div class="sheet" id="sh"></div></div><div id="toast"></div>
 <script>
-const VER='2.3.2',$=s=>document.querySelector(s);
-const I={menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',back:'<path d="M15 5l-7 7 7 7"/>',gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',ch:'<path d="M9 5l7 7-7 7"/>',ed:'<path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/>'};
+const VER='2.3.3',$=s=>document.querySelector(s);
+const I={menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',back:'<path d="M15 5l-7 7 7 7"/>',gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',plus:'<path d="M12 5v14M5 12h14"/>',ch:'<path d="M9 5l7 7-7 7"/>',ed:'<path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/>'};
 const ic=(n,c='')=>`<svg class="${c}" viewBox="0 0 24 24">${I[n]}</svg>`;
 const SECRET=['pass','key','keyPass','pPass','xSecret'];
 const HJ_D={fileName:'juanvpn-config',includeSSH:true,includeV2Ray:true,includeHysteria:false,includeShadowsocks:false,lockConfig:true,lockAll:false,payload:true,remoteProxy:true,proxyAuth:false,sni:true,sshHostPort:true,sshAuth:true,v2Editor:true,v2ServerPort:true,v2Password:true,dnsResolver:false,dnsttSettings:false,mobileDataOnly:false,lockMobileOperator:false,attestDevice:false,blockRooted:false,playStoreOnly:false,deviceIdLock:false,expiry:false,loginSshDeviceId:false,disableUserOverwrite:false,disallowTorrent:false,gamingMode:false,notes:'',password:'',confirmPassword:''};
@@ -95,11 +95,12 @@ const save=()=>{try{const c={...S};SECRET.forEach(k=>delete c[k]);localStorage.s
 const B=()=>window.JuanBridge||null;
 try{if(B()&&B().loadSecrets)Object.assign(S,JSON.parse(B().loadSecrets()))}catch(e){}
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const log=(m,persist=true)=>{const raw=String(m??'');const line=/^(\[?\d{2}:\d{2}:\d{2}\]?\s)/.test(raw)?raw:new Date().toTimeString().slice(0,8)+'  '+raw;LOG.push(line);if(LOG.length>400)LOG.shift();if(persist){try{if(B()&&B().appendUiLog)B().appendUiLog(raw)}catch(e){}}if(cur==='log')render()};
+const redactLockedLog=value=>{let x=String(value??'');if(!S._hjLocked)return x;const secrets=[S.sshHost,S.xHost,S.pHost,S.sni,S.xSni,S.xWsHost,S.user,S.pUser,S.pass,S.pPass,S.xSecret,S.key,S.keyPass,S.payload,S.known].filter(v=>typeof v==='string'&&v.trim().length>=2).sort((a,b)=>b.length-a.length);for(const v of secrets){const q=v.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');x=x.replace(new RegExp(q,'gi'),'[hidden]')};x=x.replace(/(authenticated\s+as)\s+[^\s,;]+/ig,'$1 [username hidden]');x=x.replace(/(SNI\s*=\s*)[^\s,;]+/ig,'$1[hidden]');x=x.replace(/(DNS:\s*(?:resolving|resolved)\s+)[^\s]+/ig,'$1[hidden]').replace(/(DNS:\s*).*?(\s+->\s*)[^\s]+/ig,'$1[hidden]$2[hidden]');x=x.replace(/((?:TCP connected|connecting|connected to|server reachable at)\s+)\S+(?::\d+)?/ig,'$1[server hidden]');x=x.replace(/\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b/g,'[address hidden]');x=x.replace(/\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}(?::\d+)?\b/ig,'[host hidden]');if(/payload:/i.test(x))x=x.replace(/(payload:).*/ig,'$1 [hidden]');if(/(?:GET|POST|CONNECT)\s+\S+\s+HTTP\//i.test(x))x='[payload hidden]';return x};
+const log=(m,persist=true)=>{const raw=String(m??'');const safe=redactLockedLog(raw);const line=/^(\[?\d{2}:\d{2}:\d{2}\]?\s)/.test(safe)?safe:new Date().toTimeString().slice(0,8)+'  '+safe;LOG.push(line);if(LOG.length>400)LOG.shift();if(persist){try{if(B()&&B().appendUiLog)B().appendUiLog(raw)}catch(e){}}if(cur==='log')render()};
 const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove('on'),2400)};
 
 /* native -> UI */
-window.JuanUI={hostKey(h,t,f){modal(`<h2>Trust this server?</h2><p>First connection to <b>${esc(h)}</b></p><p>Key type: ${esc(t)}</p><pre style="padding:10px 12px;min-height:0;background:#0b1424;border-radius:10px">${esc(f)}</pre><p>Compare this fingerprint with your server admin. If it differs, cancel.</p><div class="btns" style="padding:12px 0 0;border:0"><button class="btn sm pri" data-act="hkyes">Trust and connect</button><button class="btn sm bad" data-act="hkno">Cancel</button></div>`)},back(){if($('#md').classList.contains('on')){unmodal();return true}if(document.body.classList.contains('open')){document.body.classList.remove('open');return true}if(cur!=='home'){nav(PAR[cur]||'home');return true}return false},setState(s,d,e){ST={state:s,detail:d||'',error:e||(s==='ERROR'?ST.error:'')};render()},
+window.JuanUI={hostKey(h,t,f){modal(`<h2>Trust this server?</h2><p>First connection to <b>${esc(redactLockedLog(h))}</b></p><p>Key type: ${esc(t)}</p><pre style="padding:10px 12px;min-height:0;background:#0b1424;border-radius:10px">${esc(f)}</pre><p>Compare this fingerprint with your server admin. If it differs, cancel.</p><div class="btns" style="padding:12px 0 0;border:0"><button class="btn sm pri" data-act="hkyes">Trust and connect</button><button class="btn sm bad" data-act="hkno">Cancel</button></div>`)},back(){if($('#md').classList.contains('on')){unmodal();return true}if(document.body.classList.contains('open')){document.body.classList.remove('open');return true}if(cur!=='home'){nav(PAR[cur]||'home');return true}return false},setState(s,d,e){ST={state:s,detail:redactLockedLog(d||''),error:redactLockedLog(e||(s==='ERROR'?ST.error:''))};render()},
 stats(o){STAT=o||{};if(cur==='home')render()},log:m=>log(m,false),apps(a){appsList=a||[];if(cur==='apps')render()},toolResult(t){toolOut=t;if(cur==='tools')render()},importFile(t){try{const j=JSON.parse(t);if(j.format==='JUAN-HJ'){openHJImport(t)}else if(j.format==='juanvpn-profile-v2'){delete j.format;SECRET.forEach(k=>delete j[k]);S={...D,...j,_hjLocked:false};save();log('Profile imported: '+S.name);toast('Profile imported');nav('home')}else throw Error('Unsupported file format')}catch(x){toast('Import failed: '+x.message);log('Import failed: '+x.message)}},importError(m){toast('Import failed: '+(m||'Could not read file'))}};
 
 /* log colours: red = errors, green = success/connected, amber = warnings */
@@ -107,7 +108,7 @@ const LC=l=>{const t=String(l).replace(/^\[?\d{2}:\d{2}:\d{2}\]?\s+/,'');if(/^Na
 if(/^State: ERROR|^Error:|\bfail(ed|ure)?\b|refused|rejected|denied|dropped|\blost\b|unreachable|timed out|timeout|cannot|could not|unable|invalid|bad data|closed by foreign|stopped right|revoked|HOST KEY CHANGED|not bundled|Unsupported|not supported/i.test(t))return'bad';
 if(/warning/i.test(t))return'warn';
 if(/^State: CONNECTED|authenticated as|handshake OK|certificate verified|packet engine started|transport OK|forwarder on|SOCKS5 CONNECT OK/i.test(t))return'ok';return''};
-const logHtml=()=>LOG.length?LOG.map(l=>`<span class="ll ${LC(l)}">${esc(l)}</span>`).join(''):'No events yet.';
+const logHtml=()=>LOG.length?LOG.map(l=>`<span class="ll ${LC(l)}">${esc(redactLockedLog(l))}</span>`).join(''):'No events yet.';
 
 /* share links: vless:// trojan:// ss:// */
 const b64=x=>{x=decodeURIComponent(x).replace(/-/g,'+').replace(/_/g,'/');while(x.length%4)x+='=';return atob(x)};
@@ -159,14 +160,8 @@ const dur=s=>{s=+s||0;const p=x=>String(x).padStart(2,'0');return `${p(s/3600|0)
 const V={
 home(){const on=ST.state==='CONNECTED'||ST.state==='CONNECTING';
 return `${S._hjLocked?'<div class="warn">This is a password-unlocked, owner-locked configuration. Editing is disabled.</div>':''}<button class="btn start ${on?'bad':'pri'}" data-act="${on?'stop':'start'}">${ST.state==='CONNECTING'?'Cancel':on?'Stop':'Start'}</button>
-${card('',`<div class="st ${ST.state}"><span class="dot"></span><div style="flex:1"><b>${ST.state[0]+ST.state.slice(1).toLowerCase()}</b><div style="color:var(--mu);font-size:12.5px">${esc(ST.detail||S.name)}</div></div></div>
+${card('',`<div class="st ${ST.state}"><span class="dot"></span><div style="flex:1"><b>${ST.state[0]+ST.state.slice(1).toLowerCase()}</b><div style="color:var(--mu);font-size:12.5px">${esc(ST.detail||(S._hjLocked?'Locked configuration':S.name))}</div></div></div>
 <div class="stats"><div><b>${dur(STAT.uptime)}</b><small>Uptime</small></div><div><b>${fmt(STAT.downBps)}/s</b><small>Download</small></div><div><b>${fmt(STAT.upBps)}/s</b><small>Upload</small></div><div><b>${fmt(STAT.down)}</b><small>Downloaded</small></div><div><b>${fmt(STAT.up)}</b><small>Uploaded</small></div><div><b>${esc(STAT.ip||'—')}</b><small>Public IP</small></div></div>${ST.error?`<div class="err" style="padding-top:12px">${esc(ST.error)}</div>`:''}`)}
-${card('Configuration files',`<div class="btns" style="flex-direction:column">
-<button class="btn pri" data-act="saveP">Save current profile</button>
-<button class="btn" data-act="importHJ">Import config (.HJ)</button>
-<button class="btn" data-act="exporter">Export / create config (.HJ)</button>
-<button class="btn bad" data-act="resetPrompt">Reset current config</button>
-</div><div class="note">Save profiles on this device, import an existing JUAN .HJ file, or create a password-locked .HJ file. Reset clears only the active setup; saved profiles and HJ export settings stay saved.</div>`)}
 ${card('',go('tunnel',[sum(),'Tunnel type and connect-from']))}
 ${S._hjLocked?'':S.tunnel!=='ssh'?'':S.custom&&PAY.includes(S.from)?card('Payload',`<div class="fld" style="border:0"><textarea data-k="payload" spellcheck="false" autocapitalize="off" style="min-height:110px">${esc(S.payload)}</textarea></div>`+edRows()):(edRows()?card('',edRows()):'')}
 ${S.tunnel==='ssh'?card('',go('ssh',['SSH server',S._hjLocked?'Locked configuration':(S.user&&S.sshHost)?S.user+'@'+S.sshHost+':'+S.sshPort:'Not set'])):card('',go('xserver',[XN[S.tunnel]+' server',xdesc()]))}
@@ -227,7 +222,7 @@ return card('Config file',hf('Config file name (saved as .HJ)','fileName')+`<div
 },
 servers(){let L=[];try{L=JSON.parse(localStorage.getItem('juan.l')||'[]')}catch(e){}
 return card('Saved profiles',L.length?L.map((p,i)=>`<div class="ap"><div class="t"><b>${esc(p.name)}</b><small>${p._hjLocked?'Locked configuration':esc(p.user||'')+'@'+esc(p.sshHost||'')+':'+esc(p.sshPort||'')}</small></div><button class="btn sm" data-use="${i}">Use</button><button class="btn sm bad" data-del="${i}">Delete</button></div>`).join(''):'<div class="fld"><div class="h" style="margin:0">No saved profiles yet.</div></div>')
-+card('Manage',`<div class="btns"><button class="btn sm pri" data-act="saveP">Save current</button><button class="btn sm" data-act="exportP">Export</button><button class="btn sm" data-act="importP">Import</button><button class="btn sm" data-go="exporter">Config exporter</button></div>`)
++card('Manage',`<div class="btns"><button class="btn sm pri" data-act="saveP">Save current profile</button></div>`)
 +'<div class="note">Use Config exporter to create encrypted .HJ files. Legacy JSON exports omit credentials.</div>'},
 
 log(){return card('Connection log',`<pre>${logHtml()}</pre><div class="btns"><button class="btn sm pri" data-act="rl">Refresh</button><button class="btn sm" data-act="cl">Copy</button><button class="btn sm" data-act="xl">Export</button><button class="btn sm" data-act="nl">Native log</button><button class="btn sm bad" data-act="clr">Clear</button></div>`)+'<div class="note">Passwords, keys and tokens are never written to the log.</div>'},
@@ -243,17 +238,17 @@ about(){return card('',`<div class="st" style="display:block"><b style="font-siz
 };
 const T={home:'JUAN VPN',tunnel:'Tunnel type',xserver:'Proxy server',ssh:'SSH server',tls:'Proxy and TLS',payload:'Payload',dns:'DNS and routing',apps:'Apps filter',settings:'Settings',servers:'Servers',exporter:'Config Exporter',log:'JUAN VPN',tools:'JUAN VPN',help:'JUAN VPN',about:'About'};
 const TAB=['home','log','tools','help'],PAR={exporter:'servers',apps:'dns',tunnel:'home',xserver:'home',ssh:'home',tls:'home',payload:'home',dns:'home'};
-const MENU=[['home','Home'],['servers','Servers'],['exporter','Config exporter'],['ssh','SSH server'],['xserver','V2Ray / Shadowsocks server'],['tunnel','Tunnel type'],['payload','Payload'],['dns','DNS and routing'],0,['log','Logs'],['tools','Tools'],['settings','Settings'],['help','Help'],['about','About']];
+const MENU=[['home','Home'],['servers','Servers'],['ssh','SSH server'],['xserver','V2Ray / Shadowsocks server'],['tunnel','Tunnel type'],['payload','Payload'],['dns','DNS and routing'],0,['log','Logs'],['tools','Tools'],['settings','Settings'],['help','Help'],['about','About']];
 
-function render(){const y=scrollY;const hiddenWhenLocked=['tunnel','xserver','ssh','tls','payload','dns','tools','log'];$('#v').innerHTML=S._hjLocked&&hiddenWhenLocked.includes(cur)?card('Configuration locked','<div class="fld">Server details, host names, payloads and credentials are hidden. This profile can connect, but its settings cannot be viewed or edited.</div>'):V[cur]();$('#ttl').textContent=T[cur];if(S._hjLocked)$('#v').querySelectorAll('input:not(#fi),textarea,select').forEach(x=>x.disabled=true);else{const locks={payload:['payload'],remoteProxy:['pHost','pPort'],proxyAuth:['pUser','pPass'],sni:['sni','xSni'],sshHostPort:['sshHost','sshPort'],sshAuth:['user','pass','key','keyPass'],v2Editor:['xProto'],v2ServerPort:['xHost','xPort'],v2Password:['xSecret'],disableUserOverwrite:['tunnel','xHost','xPort','sshHost','sshPort','xProto'],dnsResolver:['dnsMode','dns1','dns2'],dnsttSettings:['routes','excl']};Object.entries(locks).forEach(([k,fields])=>{if(HJ[k])fields.forEach(f=>$('#v').querySelectorAll(`[data-k="${f}"]`).forEach(x=>x.disabled=true))})}
+function render(){const y=scrollY;const hiddenWhenLocked=['tunnel','xserver','ssh','tls','payload','dns','tools'];$('#v').innerHTML=S._hjLocked&&hiddenWhenLocked.includes(cur)?card('Configuration locked','<div class="fld">Server details, host names, payloads and credentials are hidden. This profile can connect, but its settings cannot be viewed or edited.</div>'):V[cur]();$('#ttl').textContent=T[cur];if(S._hjLocked)$('#v').querySelectorAll('input:not(#fi),textarea,select').forEach(x=>x.disabled=true);else{const locks={payload:['payload'],remoteProxy:['pHost','pPort'],proxyAuth:['pUser','pPass'],sni:['sni','xSni'],sshHostPort:['sshHost','sshPort'],sshAuth:['user','pass','key','keyPass'],v2Editor:['xProto'],v2ServerPort:['xHost','xPort'],v2Password:['xSecret'],disableUserOverwrite:['tunnel','xHost','xPort','sshHost','sshPort','xProto'],dnsResolver:['dnsMode','dns1','dns2'],dnsttSettings:['routes','excl']};Object.entries(locks).forEach(([k,fields])=>{if(HJ[k])fields.forEach(f=>$('#v').querySelectorAll(`[data-k="${f}"]`).forEach(x=>x.disabled=true))})}
 const tab=TAB.includes(cur),sub=!tab&&cur!=='servers'&&cur!=='settings'&&cur!=='about'||PAR[cur];
 $('#tabs').style.display=tab?'flex':'none';$('#tabs').innerHTML=TAB.map(t=>`<button class="${t===cur?'on':''}" data-go="${t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join('');
-$('#lead').innerHTML=ic(tab?'menu':'back');$('#lead').dataset.mode=tab?'menu':'back';$('#gear').innerHTML=ic('gear');$('#gear').style.visibility=tab?'visible':'hidden';scrollTo(0,y)}
+$('#lead').innerHTML=ic(tab?'menu':'back');$('#lead').dataset.mode=tab?'menu':'back';$('#gear').innerHTML=ic('gear');$('#gear').style.visibility=tab?'visible':'hidden';$('#quick').innerHTML=ic('plus');$('#quick').style.visibility=tab?'visible':'hidden';scrollTo(0,y)}
 function nav(n){cur=n;document.body.classList.remove('open');if(n==='apps'&&B()&&B().listApps)B().listApps();render();scrollTo(0,0)}
 $('#dr').innerHTML=`<div class="hd"><b>JUAN VPN</b><small>Version ${VER}</small></div>`+MENU.map(m=>m?`<button data-go="${m[0]}">${m[1]}</button>`:'<hr>').join('');
 $('#dim').onclick=()=>document.body.classList.remove('open');
 $('#lead').onclick=()=>$('#lead').dataset.mode==='menu'?document.body.classList.add('open'):nav(PAR[cur]||'home');
-$('#gear').onclick=()=>nav('settings');
+$('#gear').onclick=()=>nav('settings');$('#quick').onclick=()=>ACT.quick();
 
 /* actions */
 function validate(){const e=[];if(S.tunnel==='hy'){e.push('Hysteria needs a QUIC engine that is not bundled in this build');return e}
@@ -297,18 +292,15 @@ if(box.locked){pendingHJText=text;modal(`<h2>Unlock JUAN HJ config</h2><p>This f
 else {const raw=B()&&B().openHJ?B().openHJ(text,''):box.config;if(String(raw).startsWith('ERROR:'))throw Error(String(raw).slice(6));applyHJConfig(typeof raw==='string'?JSON.parse(raw):raw,false)}
 }
 const ACT={
+quick(){modal(`<h2>Configuration actions</h2><div class="quick-actions"><button class="btn pri" data-act="saveQuick">Save current profile<span>Keep it in Saved profiles</span></button><button class="btn" data-act="importHJ">Import .HJ<span>Load a configuration file</span></button><button class="btn" data-act="openExporter">Export .HJ<span>Create a locked or unlocked file</span></button><button class="btn" data-act="openServers">Saved profiles<span>Open saved configurations</span></button><button class="btn bad" data-act="askReset">Reset current config<span>Clear server and choose another protocol</span></button></div><div class="btns"><button class="btn sm" data-act="mdclose">Close</button></div>`)},
+askReset(){modal(`<h2>Reset current configuration?</h2><p>This disconnects the VPN and clears the active server, credentials, payload, proxy, SNI and current protocol. Saved profiles and .HJ export settings will remain.</p><div class="btns"><button class="btn" data-act="mdclose">Cancel</button><button class="btn bad" data-act="confirmReset">Reset configuration</button></div>`)},
+confirmReset(){try{if(B()&&B().disconnect)B().disconnect();S={...D};S._hjLocked=false;SECRET.forEach(k=>S[k]='');if(B()&&B().saveSecrets)B().saveSecrets(JSON.stringify(Object.fromEntries(SECRET.map(k=>[k,'']))));save();ST={state:'DISCONNECTED',detail:'',error:''};unmodal();log('Current configuration reset');toast('Configuration reset. Choose a new protocol or import a file.');nav('home')}catch(e){toast('Reset failed: '+e.message)}},
+openExporter(){unmodal();nav('exporter')},
+saveQuick(){unmodal();ACT.saveP()},
+openServers(){unmodal();nav('servers')},
 impLink(){try{const r=parseLink(S.link);Object.assign(S,r.o);if(r.name)S.name=r.name;S.link='';save();if(B()&&B().saveSecrets)B().saveSecrets(JSON.stringify(Object.fromEntries(SECRET.map(k=>[k,S[k]||'']))));log('Link imported: '+S.tunnel+' '+S.xHost+':'+S.xPort);toast('Link imported');render()}catch(x){toast(x.message);log('Import failed: '+x.message)}},
 forget(){S.known='';save();B()&&B().forgetHostKey&&B().forgetHostKey(S.sshHost,String(S.sshPort));toast('Trusted key cleared');render()},
 mdclose(){unmodal();render()},hkyes(){B()&&B().hostKeyAnswer&&B().hostKeyAnswer(true);unmodal()},hkno(){B()&&B().hostKeyAnswer&&B().hostKeyAnswer(false);unmodal()},
-resetPrompt(){
-modal(`<h2>Reset current configuration?</h2><p>This will disconnect JUAN VPN if it is running and clear the current server, protocol, payload, proxy, SNI and saved credentials from this device.</p><p>Your saved profiles, imported files and HJ exporter preferences will not be deleted.</p><div class="btns"><button class="btn" data-act="mdclose">Cancel</button><button class="btn bad" data-act="resetConfig">Reset configuration</button></div>`)
-},
-resetConfig(){
-try{if(B()&&B().disconnect)B().disconnect();if(B()&&B().clearSecrets)B().clearSecrets();}catch(e){log('Reset cleanup warning: '+e.message)}
-S={...D,apps:[]};try{localStorage.removeItem('juan.p')}catch(e){}save();
-ST={state:'DISCONNECTED',detail:'Configuration reset',error:''};STAT={};pendingHJText='';
-unmodal();log('Current configuration reset; saved profiles were kept.');toast('Reset complete — choose another protocol or import a config');nav('home');
-},
 start(){const e=validate();if(e.length){ST.error=e[0];log('Validation failed: '+e[0]);render();return}
 ST={state:'CONNECTING',detail:'Starting…',error:''};log('Connect requested for '+S.name);render();
 if(B()&&B().connect)B().connect(JSON.stringify(S));else{ST={state:'ERROR',detail:'',error:'Native tunnel engine is not attached to this UI.'};log('No native bridge: cannot connect');render()}},
@@ -318,11 +310,11 @@ batt(){B()&&B().batteryHelp?B().batteryHelp():toast('Available inside the Androi
 rl(){render()},clr(){LOG=[];B()&&B().clearLogs&&B().clearLogs();render()},nl(){B()&&B().nativeLog?B().nativeLog():toast('Available inside the Android app')},
 cl(){navigator.clipboard?.writeText(LOG.join('\n')).then(()=>toast('Logs copied'),()=>toast('Copy failed'))},
 xl(){dl('juanvpn-log.txt',LOG.join('\n'),'text/plain')},
-saveP(){let L=JSON.parse(localStorage.getItem('juan.l')||'[]');const c=pub();const i=L.findIndex(x=>x.name===c.name);i>=0?L[i]=c:L.push(c);localStorage.setItem('juan.l',JSON.stringify(L));toast('Profile saved');render()},
+saveP(){if(S._hjLocked){toast('Owner-locked configuration cannot be saved as an editable profile.');return}let L=JSON.parse(localStorage.getItem('juan.l')||'[]');const c=pub();const i=L.findIndex(x=>x.name===c.name);i>=0?L[i]=c:L.push(c);localStorage.setItem('juan.l',JSON.stringify(L));toast('Profile saved');render()},
 exportP(){dl('juanvpn-profile.json',JSON.stringify({format:'juanvpn-profile-v2',...pub()},null,2),'application/json')},
 importP(){B()&&B().chooseImport?B().chooseImport():$('#fi').click()},
 exporter(){nav('exporter')},
-importHJ(){B()&&B().chooseImport?B().chooseImport():$('#fi').click()},
+importHJ(){unmodal();B()&&B().chooseImport?B().chooseImport():$('#fi').click()},
 saveHJ(){try{const locked=!!HJ.lockConfig;const text=makeHJText(locked);clearHJPassword();dl(hjName(),text,'application/octet-stream');toast('Choose a location to save your .HJ file')}catch(e){toast(e.message)}},
 saveBothHJ(){try{if(!HJ.lockConfig){HJ.lockConfig=true;saveHJ();render();toast('Set a password, then tap Save locked & unlocked again');return}const unlocked=makeHJText(false),locked=makeHJText(true);clearHJPassword();if(!B()||!B().exportFiles)throw Error('Save both is available only in the Android app');B().exportFiles(hjName('-unlocked'),unlocked,hjName('-locked'),locked);toast('Choose where to save each .HJ file')}catch(e){toast(e.message)}},
 shareHJ(){try{const text=makeHJText(!!HJ.lockConfig);clearHJPassword();if(!B()||!B().shareFile)throw Error('Sharing is available only in the Android app');B().shareFile(hjName(),text)}catch(e){toast(e.message)}},
