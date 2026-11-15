@@ -59,30 +59,11 @@ These source changes address lifecycle and permission-flow defects visible in th
 - **Not available:** REALITY, XTLS flow, gRPC/HTTP2 transports and Hysteria (needs a QUIC stack). These are refused with a clear message instead of failing silently.
 - **Log colours:** errors red, warnings amber, successful steps and *Connected* green.
 
-## VMess protocol correction
 
-The VMess AEAD command header packs the padding length and security type into a
-single byte (high nibble = padding length, low nibble = security type). Do not
-insert a separate padding byte. This build restores that wire layout and fixes
-AEAD response-header nonce derivation to use the response IV, as required by
-the VMess specification. The response command header is also validated before
-reading encrypted data chunks.
+## Version 2.2.1 VMess correction
 
-This client currently implements VMess AEAD with AES-128-GCM and alterId 0.
-It does not claim compatibility with legacy alterId accounts or every VMess
-cipher/transport variant. TLS certificate verification remains enabled by
-default.
-
-
-## VMess protocol correction
-
-The VMess AEAD command header packs padding length and security type into one
-byte (high nibble = padding length, low nibble = security type). This build
-retains that correct wire layout. It also fixes AEAD response-header nonce
-derivation to use the response IV, as required by the VMess specification, and
-validates the response command header before reading encrypted data chunks.
-
-This client currently implements VMess AEAD with AES-128-GCM and alterId 0.
-It does not claim compatibility with legacy alterId accounts or every VMess
-cipher/transport variant. TLS certificate verification remains enabled by
-default.
+- Corrected the VMess AEAD request security nibble: `0x02` selects AES-128-GCM.
+- The previous client header used `0x03`, which selects ChaCha20-Poly1305 while the payload was encrypted as AES-128-GCM; this protocol mismatch can cause the server to reject/close the connection.
+- Kept the zero padding-length nibble combined in the same byte as the security nibble, as required by the VMess header format.
+- Bumped Android versionCode/versionName so update systems can distinguish this build.
+- VMess still requires a valid UUID, accurate device clock, and server-compatible transport/security settings.

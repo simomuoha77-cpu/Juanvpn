@@ -331,8 +331,9 @@ private class VmessSession(uuid: String) {
         val h = ByteArrayOutputStream()
         h.write(1); h.write(bodyIv); h.write(bodyKey); h.write(respV)
         h.write(0x01)            // option: standard chunk stream
-        h.write(0x03)            // padding 0 | security AES-128-GCM
-        h.write(0); h.write(1)   // reserved, command TCP
+        h.write(0x02)            // P=0 | security=0x02 (AES-128-GCM)
+        h.write(0x00)            // reserved
+        h.write(0x01)            // command: TCP
         h.write(port shr 8); h.write(port and 0xFF)
         val v4 = Regex("(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})").matches(host)
         when {
@@ -414,21 +415,15 @@ private class VmessIn(private val i: InputStream, bodyKey: ByteArray, bodyIv: By
 
     private fun head() {
         val lk = Vm.kdf(rKey, "AEAD Resp Header Len Key").copyOf(16)
-        val ln = Vm.kdf(rIv, "AEAD Resp Header Len IV").copyOf(12)
+        val ln = Vm.kdf(rKey, "AEAD Resp Header Len IV").copyOf(12)
         val e = ByteArray(18); fully(e)
         val l = Vm.gcm(false, lk, ln, null, e)
         val n = ((l[0].toInt() and 0xFF) shl 8) or (l[1].toInt() and 0xFF)
         val pk = Vm.kdf(rKey, "AEAD Resp Header Key").copyOf(16)
-        val pn = Vm.kdf(rIv, "AEAD Resp Header IV").copyOf(12)
+        val pn = Vm.kdf(rKey, "AEAD Resp Header IV").copyOf(12)
         val eh = ByteArray(n + 16); fully(eh)
         val h = Vm.gcm(false, pk, pn, null, eh)
-        if (h.size < 4 || (h[0].toInt() and 0xFF) != respV) {
-            throw IOException("VMess: invalid response header (response authentication byte mismatch)")
-        }
-        val command = h[2].toInt() and 0xFF
-        val commandLength = h[3].toInt() and 0xFF
-        if (h.size != 4 + commandLength) throw IOException("VMess: malformed response command")
-        if (command != 0) throw IOException("VMess: unsupported server response command $command")
+        if (h.isEmpty() || (h[0].toInt() and 0xFF) != respV) throw IOException("VMess: bad response header")
     }
 
     private fun fill(): Boolean {
