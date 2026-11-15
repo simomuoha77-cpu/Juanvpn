@@ -25,6 +25,10 @@ object JuanBus {
     @Volatile var onState: ((String, String, String) -> Unit)? = null
     @Volatile var onLog: ((String) -> Unit)? = null
     @Volatile var onStats: ((JSONObject) -> Unit)? = null
+    @Volatile var onHostKey: ((String, String, String) -> Unit)? = null
+    @Volatile var pendingHK: Triple<String, String, String>? = null
+    @Volatile var answer = false
+    @Volatile var latch: java.util.concurrent.CountDownLatch? = null
     @Synchronized fun log(m: String) {
         val l = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date()) + "  " + m
         logs.add(l); if (logs.size > 400) logs.removeAt(0); onLog?.invoke(l)
@@ -76,7 +80,7 @@ class JuanVpnService : VpnService() {
             val c = JuanCfg.parse(json)
             c.validate()?.let { throw IllegalArgumentException(it) }
             post("CONNECTING", "Opening SSH tunnel", "")
-            val e = JuanSshEngine(c, JuanBus::log); e.start(); engine = e
+            val e = JuanSshEngine(c, JuanBus::log, trust()); e.start(); engine = e
             post("CONNECTING", "Starting TUN", "")
             val pfd = build(c) ?: throw IllegalStateException("VPN permission missing or revoked")
             tun = pfd
@@ -105,6 +109,22 @@ class JuanVpnService : VpnService() {
             else -> b.addDisallowedApplication(packageName) // our own SSH socket must bypass the TUN
         }
         return b.establish()
+    }
+
+    private fun trust() = object : HostTrust {
+        val sp = getSharedPreferences("juan_trust", MODE_PRIVATE)
+        override fun stored(label: String): String? = sp.getString(label, null)
+        override fun save(line: String) { sp.edit().putString(line.substringBefore(' '), line).apply() }
+        override fun confirm(host: String, type: String, fingerprint: String): Boolean {
+            val l = java.util.concurrent.CountDownLatch(1)
+            JuanBus.answer = false; JuanBus.latch = l; JuanBus.pendingHK = Triple(host, type, fingerprint)
+            JuanBus.log("Host key: waiting for your confirmation ($type $fingerprint)")
+            post("CONNECTING", "Confirm server key", "")
+            JuanBus.onHostKey?.invoke(host, type, fingerprint)
+            l.await(120, TimeUnit.SECONDS)
+            JuanBus.pendingHK = null
+            return JuanBus.answer
+        }
     }
 
     private fun startStats(e: JuanSshEngine) {

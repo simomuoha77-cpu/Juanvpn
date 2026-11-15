@@ -60,15 +60,15 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit) : Pro
             "http" -> {
                 val auth = if (c.pUser.isNotEmpty()) "Proxy-Authorization: Basic " +
                     Base64.encodeToString("${c.pUser}:${c.pPass}".toByteArray(), Base64.NO_WRAP) + "\r\n" else ""
-                send(o, if (custom) fill(c.payload, host, port)
+                send(o, if (custom) payloadReq(host, port)
                 else "CONNECT $host:$port HTTP/1.1\r\nHost: $host:$port\r\n$auth\r\n")
                 expectOk(readHead(i))
             }
             "socks5" -> socks5(i, o, host, port)
-            "tls" -> if (custom) { send(o, fill(c.payload, host, port)); expectOk(readHead(i)) }
+            "tls" -> if (custom) { send(o, payloadReq(host, port)); expectOk(readHead(i)) }
             "ws" -> {
                 val key = Base64.encodeToString(ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }, Base64.NO_WRAP)
-                send(o, if (custom) fill(c.payload, host, port)
+                send(o, if (custom) payloadReq(host, port)
                 else "GET ${c.wsPath.ifBlank { "/" }} HTTP/1.1\r\nHost: ${c.sni.ifBlank { host }}\r\nUpgrade: websocket\r\n" +
                     "Connection: Upgrade\r\nSec-WebSocket-Key: $key\r\nSec-WebSocket-Version: 13\r\n\r\n")
                 expectOk(readHead(i))
@@ -76,6 +76,13 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit) : Pro
         }
         s.soTimeout = 0
         sock = s; ins = i; outs = o
+    }
+
+    private fun payloadReq(host: String, port: Int): String {
+        val full = fill(c.payload, host, port)
+        val i = full.indexOf("\r\n\r\n")
+        if (i >= 0 && i + 4 < full.length) log("Payload: text after the first blank line was ignored")
+        return if (i >= 0) full.substring(0, i + 4) else full
     }
 
     private fun send(o: OutputStream, req: String) {

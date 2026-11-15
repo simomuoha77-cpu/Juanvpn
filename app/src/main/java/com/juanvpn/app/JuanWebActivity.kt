@@ -54,13 +54,15 @@ class JuanWebActivity : Activity() {
         JuanBus.onState = { s, d, e -> js("JuanUI.setState(${q(s)},${q(d)},${q(e)})") }
         JuanBus.onLog = { l -> js("JuanUI.log(${q(l)})") }
         JuanBus.onStats = { o -> js("JuanUI.stats($o)") }
+        JuanBus.onHostKey = { h, t, f -> js("JuanUI.hostKey(${q(h)},${q(t)},${q(f)})") }
         web.postDelayed({
             JuanBus.logs.toList().forEach { js("JuanUI.log(${q(it)})") }
+            JuanBus.pendingHK?.let { js("JuanUI.hostKey(${q(it.first)},${q(it.second)},${q(it.third)})") }
             if (JuanBus.state != "DISCONNECTED") js("JuanUI.setState(${q(JuanBus.state)},${q(JuanBus.detail)},${q(JuanBus.error)})")
         }, 400)
     }
 
-    override fun onPause() { JuanBus.onState = null; JuanBus.onLog = null; JuanBus.onStats = null; super.onPause() }
+    override fun onPause() { JuanBus.onState = null; JuanBus.onLog = null; JuanBus.onStats = null; JuanBus.onHostKey = null; super.onPause() }
 
     private fun startVpn(json: String) = ContextCompat.startForegroundService(this,
         Intent(this, JuanVpnService::class.java).setAction(JuanVpnService.START).putExtra(JuanVpnService.CFG, json))
@@ -85,6 +87,7 @@ class JuanWebActivity : Activity() {
         }
         @JavascriptInterface fun saveSecrets(j: String) { JuanSecrets.save(applicationContext, j) }
         @JavascriptInterface fun loadSecrets(): String = JuanSecrets.load(applicationContext)
+        @JavascriptInterface fun hostKeyAnswer(ok: Boolean) { JuanBus.answer = ok; JuanBus.latch?.countDown() }
         @JavascriptInterface fun disconnect() { startService(Intent(this@JuanWebActivity, JuanVpnService::class.java).setAction(JuanVpnService.STOP)) }
         @JavascriptInterface fun notifPerm() = runOnUiThread {
             if (Build.VERSION.SDK_INT >= 33) requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 703)

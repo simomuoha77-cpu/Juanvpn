@@ -25,7 +25,13 @@ private class COut(val o: OutputStream, val n: AtomicLong) : OutputStream() {
 }
 
 /** SSH session (via JuanProxy) + local SOCKS5 that opens direct-tcpip channels. Counts real bytes. */
-class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit) {
+interface HostTrust {
+    fun stored(label: String): String?
+    fun confirm(host: String, type: String, fingerprint: String): Boolean
+    fun save(line: String)
+}
+
+class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, private val trust: HostTrust) {
     val up = AtomicLong(); val down = AtomicLong()
     @Volatile var socksPort = 0; private set
     private var session: Session? = null
@@ -34,20 +40,40 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit) {
     private val pool = Executors.newCachedThreadPool()
 
     fun start() {
-        val known = HostKeys.normalize(c.sshHost, c.sshPort, c.known)
+        val label = if (c.sshPort == 22) c.sshHost else "[${c.sshHost}]:${c.sshPort}"
+        val known = listOf(HostKeys.normalize(c.sshHost, c.sshPort, c.known), trust.stored(label) ?: "")
+            .filter { it.isNotBlank() }.joinToString("\n")
         val types = HostKeys.types(known)
-        require(types.isNotEmpty()) { "Host key missing: paste the full known_hosts record" }
         val jsch = JSch()
-        jsch.setKnownHosts(ByteArrayInputStream(known.toByteArray()))
+        if (known.isNotBlank()) jsch.setKnownHosts(ByteArrayInputStream(known.toByteArray()))
         if (c.key.isNotBlank()) jsch.addIdentity("juan-key", c.key.toByteArray(), null, c.keyPass.takeIf { it.isNotEmpty() }?.toByteArray())
         val s = jsch.getSession(c.user, c.sshHost, c.sshPort)
         if (c.pass.isNotEmpty()) s.setPassword(c.pass)
-        s.setConfig("StrictHostKeyChecking", "yes")
-        s.setConfig("server_host_key", HostKeys.algorithms(types))
+        if (types.isNotEmpty()) {
+            s.setConfig("StrictHostKeyChecking", "yes")
+            s.setConfig("server_host_key", HostKeys.algorithms(types))
+        } else {
+            // First connection: the user must confirm the fingerprint. Never auto-trusted.
+            s.setConfig("StrictHostKeyChecking", "ask")
+            s.setUserInfo(object : com.jcraft.jsch.UserInfo {
+                override fun getPassphrase(): String? = null
+                override fun getPassword(): String? = null
+                override fun promptPassword(m: String?) = false
+                override fun promptPassphrase(m: String?) = false
+                override fun showMessage(m: String?) {}
+                override fun promptYesNo(m: String?): Boolean {
+                    if (m?.contains("changed", true) == true) return false
+                    val hk = s.hostKey ?: return false
+                    val ok = trust.confirm(c.sshHost, hk.type, hk.getFingerPrint(jsch))
+                    if (ok) trust.save("$label ${hk.type} ${hk.key}")
+                    return ok
+                }
+            })
+        }
         s.setServerAliveInterval(c.keepalive * 1000)
         s.setServerAliveCountMax(3)
         s.setProxy(JuanProxy(c, log))
-        log("SSH: connecting ${c.sshHost}:${c.sshPort} (host key types: ${types.joinToString()})")
+        log("SSH: connecting ${c.sshHost}:${c.sshPort}" + if (types.isEmpty()) " (new server, key needs confirmation)" else " (verifying saved host key)")
         s.connect(20_000)
         log("SSH: authenticated as ${c.user}")
         session = s
@@ -103,6 +129,7 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit) {
             val m = e.message ?: e.javaClass.simpleName
             return when {
                 m.contains("reject HostKey", true) -> "SSH host key rejected: it does not match the record in Known hosts. Confirm the correct key with the server admin; do not trust it blindly."
+                m.contains("changed", true) && m.contains("HostKey", true) -> "SERVER HOST KEY CHANGED: this is not the server you trusted before. Do not continue unless the server admin confirms a key change."
                 m.contains("UnknownHostKey", true) -> "Unknown SSH host key: add the server's verified known_hosts record."
                 m.contains("Auth fail", true) || m.contains("Auth cancel", true) -> "SSH authentication failed: wrong username, password or key."
                 e is java.net.UnknownHostException -> "Cannot resolve host: $m"
