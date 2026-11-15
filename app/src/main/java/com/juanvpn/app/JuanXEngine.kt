@@ -331,9 +331,8 @@ private class VmessSession(uuid: String) {
         val h = ByteArrayOutputStream()
         h.write(1); h.write(bodyIv); h.write(bodyKey); h.write(respV)
         h.write(0x01)            // option: standard chunk stream
-        h.write(0x02)            // P=0 | security=0x02 (AES-128-GCM)
-        h.write(0x00)            // reserved
-        h.write(0x01)            // command: TCP
+        h.write(0x03)            // padding 0 | security AES-128-GCM
+        h.write(0); h.write(1)   // reserved, command TCP
         h.write(port shr 8); h.write(port and 0xFF)
         val v4 = Regex("(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})").matches(host)
         when {

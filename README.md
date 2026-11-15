@@ -60,10 +60,6 @@ These source changes address lifecycle and permission-flow defects visible in th
 - **Log colours:** errors red, warnings amber, successful steps and *Connected* green.
 
 
-## Version 2.2.1 VMess correction
+## VMess 2.2.2 correction
 
-- Corrected the VMess AEAD request security nibble: `0x02` selects AES-128-GCM.
-- The previous client header used `0x03`, which selects ChaCha20-Poly1305 while the payload was encrypted as AES-128-GCM; this protocol mismatch can cause the server to reject/close the connection.
-- Kept the zero padding-length nibble combined in the same byte as the security nibble, as required by the VMess header format.
-- Bumped Android versionCode/versionName so update systems can distinguish this build.
-- VMess still requires a valid UUID, accurate device clock, and server-compatible transport/security settings.
+Restores the VMess AEAD request security byte to `0x03` (AES-128-GCM), which matches the AES-GCM body cipher. The previous experimental patches incorrectly inserted an extra padding byte or changed the security value to `0x02`. This release restores the original protocol header layout and increments Android versionCode to 5 / versionName to 2.2.2.
