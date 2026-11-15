@@ -67,11 +67,11 @@ class JuanVpnService : VpnService() {
         ServiceCompat.startForeground(this, NID, notif("Connecting…"),
             if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)
         teardown()
-        worker = Thread { run(json) }.apply { name = "JuanConnect"; start() }
+        worker = Thread { connectFlow(json) }.apply { name = "JuanConnect"; start() }
         return START_NOT_STICKY
     }
 
-    private fun run(json: String) {
+    private fun connectFlow(json: String) {
         try {
             val c = JuanCfg.parse(json)
             c.validate()?.let { throw IllegalArgumentException(it) }
@@ -99,7 +99,7 @@ class JuanVpnService : VpnService() {
             .addAddress("10.10.10.2", 32).addRoute("0.0.0.0", 0).addDnsServer(TunEngine.DNS)
             .addAddress("fd00:10:10::2", 128).addRoute("::", 0) // IPv6 blackholed: no leaks, tunnel is IPv4-only
         when (c.appMode) {
-            "inc" -> if (c.apps.isEmpty()) JuanBus.log("Apps filter: nothing selected, routing all apps")
+            "inc" -> if (c.apps.isEmpty()) { JuanBus.log("Apps filter: nothing selected, routing all apps"); b.addDisallowedApplication(packageName) }
                      else c.apps.forEach { try { b.addAllowedApplication(it) } catch (_: Exception) {} }
             "exc" -> { c.apps.forEach { try { b.addDisallowedApplication(it) } catch (_: Exception) {} }; b.addDisallowedApplication(packageName) }
             else -> b.addDisallowedApplication(packageName) // our own SSH socket must bypass the TUN

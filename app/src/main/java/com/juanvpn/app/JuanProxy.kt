@@ -104,7 +104,7 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit) : Pro
         val auth = c.pUser.isNotEmpty()
         o.write(if (auth) byteArrayOf(5, 2, 0, 2) else byteArrayOf(5, 1, 0)); o.flush()
         val m = ByteArray(2).also { readFully(i, it) }
-        if (m[0].toInt() != 5 || m[1].toInt() == 0xFF) throw IOException("SOCKS5 proxy rejected authentication methods")
+        if (m[0].toInt() != 5 || (m[1].toInt() and 0xFF) == 0xFF) throw IOException("SOCKS5 proxy rejected authentication methods")
         if (m[1].toInt() == 2) {
             val u = c.pUser.toByteArray(); val p = c.pPass.toByteArray()
             o.write(byteArrayOf(1, u.size.toByte()) + u + byteArrayOf(p.size.toByte()) + p); o.flush()

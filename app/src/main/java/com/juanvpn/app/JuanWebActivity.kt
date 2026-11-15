@@ -12,6 +12,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import org.json.JSONArray
 import org.json.JSONObject
@@ -31,12 +32,19 @@ class JuanWebActivity : Activity() {
             addJavascriptInterface(Bridge(), "JuanBridge")
             loadUrl("file:///android_asset/juanvpn-ui.html")
         }
-        ViewCompat.setOnApplyWindowInsetsListener(web) { v, i ->
+        val root = android.widget.FrameLayout(this).apply { setBackgroundColor(0xff0d1730.toInt()) }
+        root.addView(web, android.widget.FrameLayout.LayoutParams(-1, -1))
+        ViewCompat.setOnApplyWindowInsetsListener(root) { v, i ->
             val s = i.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
-            v.setPadding(s.left, s.top, s.right, s.bottom); i
+            v.setPadding(s.left, s.top, s.right, s.bottom); WindowInsetsCompat.CONSUMED
         }
-        setContentView(web)
+        WindowCompat.getInsetsController(window, root).isAppearanceLightStatusBars = false
+        setContentView(root)
+        ViewCompat.requestApplyInsets(root)
     }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() { web.evaluateJavascript("JuanUI.back()") { r -> if (r != "true") finish() } }
 
     private fun js(code: String) = runOnUiThread { web.evaluateJavascript(code, null) }
     private fun q(s: String?) = JSONObject.quote(s ?: "")
@@ -75,6 +83,8 @@ class JuanWebActivity : Activity() {
             val i = VpnService.prepare(this@JuanWebActivity)
             if (i == null) startVpn(json) else { pending = json; startActivityForResult(i, 700) }
         }
+        @JavascriptInterface fun saveSecrets(j: String) { JuanSecrets.save(applicationContext, j) }
+        @JavascriptInterface fun loadSecrets(): String = JuanSecrets.load(applicationContext)
         @JavascriptInterface fun disconnect() { startService(Intent(this@JuanWebActivity, JuanVpnService::class.java).setAction(JuanVpnService.STOP)) }
         @JavascriptInterface fun notifPerm() = runOnUiThread {
             if (Build.VERSION.SDK_INT >= 33) requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 703)

@@ -81,12 +81,13 @@ let S={...D},LOG=[],ST={state:'DISCONNECTED',detail:'',error:''},STAT={},cur='ho
 try{const r=JSON.parse(localStorage.getItem('juan.p')||'{}');SECRET.forEach(k=>delete r[k]);S={...D,...r}}catch(e){}
 const save=()=>{try{const c={...S};SECRET.forEach(k=>delete c[k]);localStorage.setItem('juan.p',JSON.stringify(c))}catch(e){}};
 const B=()=>window.JuanBridge||null;
+try{if(B()&&B().loadSecrets)Object.assign(S,JSON.parse(B().loadSecrets()))}catch(e){}
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const log=m=>{LOG.push(new Date().toTimeString().slice(0,8)+'  '+m);if(LOG.length>400)LOG.shift();if(cur==='log')render()};
 const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove('on'),2400)};
 
 /* native -> UI */
-window.JuanUI={setState(s,d,e){ST={state:s,detail:d||'',error:e||(s==='ERROR'?ST.error:'')};if(e)log('Error: '+e);log('State: '+s+(d?' ('+d+')':''));render()},
+window.JuanUI={back(){if(document.body.classList.contains('open')){document.body.classList.remove('open');return true}if(cur!=='home'){nav(PAR[cur]||'home');return true}return false},setState(s,d,e){ST={state:s,detail:d||'',error:e||(s==='ERROR'?ST.error:'')};if(e)log('Error: '+e);log('State: '+s+(d?' ('+d+')':''));render()},
 stats(o){STAT=o||{};if(cur==='home')render()},log,apps(a){appsList=a||[];if(cur==='apps')render()},toolResult(t){toolOut=t;if(cur==='tools')render()}};
 
 /* components */
@@ -200,6 +201,7 @@ else if(d.del!=null){const L=JSON.parse(localStorage.getItem('juan.l')||'[]');L.
 document.addEventListener('input',e=>{const el=e.target,d=el.dataset;
 if(d.app){const s=new Set(S.apps);el.checked?s.add(d.app):s.delete(d.app);S.apps=[...s];save();return}
 if(!d.k)return;S[d.k]=el.type==='checkbox'?el.checked:el.value;if(d.k!=='tHost')save();
+if(SECRET.includes(d.k)&&B()&&B().saveSecrets)B().saveSecrets(JSON.stringify(Object.fromEntries(SECRET.map(k=>[k,S[k]||'']))));
 if(d.re){render()}else if(['sni','pHost','sshHost','payload'].includes(d.k)){const p=document.querySelector('.pv');if(p)p.innerHTML=preview()}});
 document.addEventListener('change',e=>{if(e.target.id!=='fi')return;const fl=e.target.files[0];if(!fl)return;fl.text().then(t=>{try{const j=JSON.parse(t);if(j.format!=='juanvpn-profile-v2')throw Error('Unsupported file format');delete j.format;SECRET.forEach(k=>delete j[k]);S={...D,...j};save();log('Profile imported: '+S.name);toast('Profile imported');nav('home')}catch(x){toast('Import failed: '+x.message);log('Import failed: '+x.message)}})});
 render();
