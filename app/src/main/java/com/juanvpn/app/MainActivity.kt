@@ -19,7 +19,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); store = ProfileStore(this); buildUi(); load(store.load()); if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 703) }
     private fun field(parent: LinearLayout, label: String, value: String = "", secret: Boolean = false): EditText {
         parent.addView(TextView(this).apply { text = label; textSize = 13f; setTextColor(0xffaebbd0.toInt()) })
-        return EditText(this).apply { setText(value); singleLine = !secret; if (secret) inputType = 129; setTextColor(0xffffffff.toInt()); setHintTextColor(0xff8492a8.toInt()); hint = label; parent.addView(this) }
+        return EditText(this).apply { setText(value); setSingleLine(!secret); if (secret) inputType = 129; setTextColor(0xffffffff.toInt()); setHintTextColor(0xff8492a8.toInt()); hint = label; parent.addView(this) }
     }
     private fun buildUi() {
         val root = LinearLayout(this).apply { orientation = 1; setPadding(24, 24, 24, 24); setBackgroundColor(0xff101522.toInt()) }
