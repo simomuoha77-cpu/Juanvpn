@@ -73,7 +73,7 @@ details{border-top:1px solid var(--ln);padding:12px 16px}details:first-of-type{b
 <header><div class="bar"><button class="ib" id="lead" aria-label="Menu"></button><h1 id="ttl">JUAN VPN</h1><button class="ib" id="gear" aria-label="Settings"></button></div><nav class="tabs" id="tabs"></nav></header>
 <main id="v"></main><input type="file" id="fi" accept=".hj,.HJ,.json,application/json" hidden><div id="md"><div class="sheet" id="sh"></div></div><div id="toast"></div>
 <script>
-const VER='2.3.0',$=s=>document.querySelector(s);
+const VER='2.3.1',$=s=>document.querySelector(s);
 const I={menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',back:'<path d="M15 5l-7 7 7 7"/>',gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',ch:'<path d="M9 5l7 7-7 7"/>',ed:'<path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/>'};
 const ic=(n,c='')=>`<svg class="${c}" viewBox="0 0 24 24">${I[n]}</svg>`;
 const SECRET=['pass','key','keyPass','pPass','xSecret'];
@@ -161,6 +161,11 @@ home(){const on=ST.state==='CONNECTED'||ST.state==='CONNECTING';
 return `${S._hjLocked?'<div class="warn">This is a password-unlocked, owner-locked configuration. Editing is disabled.</div>':''}<button class="btn start ${on?'bad':'pri'}" data-act="${on?'stop':'start'}">${ST.state==='CONNECTING'?'Cancel':on?'Stop':'Start'}</button>
 ${card('',`<div class="st ${ST.state}"><span class="dot"></span><div style="flex:1"><b>${ST.state[0]+ST.state.slice(1).toLowerCase()}</b><div style="color:var(--mu);font-size:12.5px">${esc(ST.detail||S.name)}</div></div></div>
 <div class="stats"><div><b>${dur(STAT.uptime)}</b><small>Uptime</small></div><div><b>${fmt(STAT.downBps)}/s</b><small>Download</small></div><div><b>${fmt(STAT.upBps)}/s</b><small>Upload</small></div><div><b>${fmt(STAT.down)}</b><small>Downloaded</small></div><div><b>${fmt(STAT.up)}</b><small>Uploaded</small></div><div><b>${esc(STAT.ip||'—')}</b><small>Public IP</small></div></div>${ST.error?`<div class="err" style="padding-top:12px">${esc(ST.error)}</div>`:''}`)}
+${card('Configuration files',`<div class="btns" style="flex-direction:column">
+<button class="btn pri" data-act="saveP">Save current profile</button>
+<button class="btn" data-act="importHJ">Import config (.HJ)</button>
+<button class="btn" data-act="exporter">Export / create config (.HJ)</button>
+</div><div class="note">Save profiles on this device, import an existing JUAN .HJ file, or open the exporter to create a password-locked .HJ file.</div>`)}
 ${card('',go('tunnel',[sum(),'Tunnel type and connect-from']))}
 ${S._hjLocked?'':S.tunnel!=='ssh'?'':S.custom&&PAY.includes(S.from)?card('Payload',`<div class="fld" style="border:0"><textarea data-k="payload" spellcheck="false" autocapitalize="off" style="min-height:110px">${esc(S.payload)}</textarea></div>`+edRows()):(edRows()?card('',edRows()):'')}
 ${S.tunnel==='ssh'?card('',go('ssh',['SSH server',S._hjLocked?'Locked configuration':(S.user&&S.sshHost)?S.user+'@'+S.sshHost+':'+S.sshPort:'Not set'])):card('',go('xserver',[XN[S.tunnel]+' server',xdesc()]))}
