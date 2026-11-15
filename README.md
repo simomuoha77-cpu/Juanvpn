@@ -58,3 +58,11 @@ These source changes address lifecycle and permission-flow defects visible in th
 - **VMess** (AEAD, alterId 0, AES-128-GCM) is supported over TCP, TLS or WebSocket on any port; the phone clock must be accurate.
 - **Not available:** REALITY, XTLS flow, gRPC/HTTP2 transports and Hysteria (needs a QUIC stack). These are refused with a clear message instead of failing silently.
 - **Log colours:** errors red, warnings amber, successful steps and *Connected* green.
+
+
+## Version 2.2.1 protocol correction
+
+- Corrected the VMess AEAD request-header layout: the mandatory padding-length (`P`) byte was missing, shifting the security, reserved, command, port, and address fields. This caused valid VMess servers to reject requests even when TCP, TLS, and WebSocket setup succeeded.
+- VMess AEAD currently supports UUID authentication with `alterId=0`, AES-128-GCM request/response body encryption, and TCP or WebSocket transports, optionally protected by TLS.
+- TLS certificate and hostname verification remain enabled by default. Configure the SNI/server name to a hostname covered by the certificate. A front IP/domain, TLS SNI, and WebSocket Host header are separate values and must match the server/reverse-proxy configuration. Do not disable verification to hide a mismatch.
+- This is a client-side correction; it cannot make an invalid UUID, unsupported server transport, wrong WebSocket path, incorrect SNI, or misconfigured server work. The remote server must be configured with the same UUID and compatible VMess settings.
