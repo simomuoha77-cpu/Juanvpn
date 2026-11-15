@@ -4,6 +4,8 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import androidx.core.content.FileProvider
+import java.io.File
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
@@ -22,6 +24,7 @@ class JuanWebActivity : Activity() {
     private var sent = 0
     private var pending: String? = null
     private var exportText: String? = null
+    private val exportQueue = ArrayDeque<Pair<String, String>>()
     private var waitingForNotification = false
     private var connectionRequestInFlight = false
 
@@ -78,6 +81,14 @@ class JuanWebActivity : Activity() {
 
     override fun onPause() { JuanBus.onState = null; JuanBus.onLog = null; JuanBus.onStats = null; JuanBus.onHostKey = null; super.onPause() }
 
+    private fun startNextExport() {
+        if (exportQueue.isEmpty()) { exportText = null; return }
+        val (name, text) = exportQueue.removeFirst()
+        exportText = text
+        startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE, name), 701)
+    }
+
     private fun startVpn(json: String) {
         try {
             ContextCompat.startForegroundService(this,
@@ -101,7 +112,24 @@ class JuanWebActivity : Activity() {
                 if (res == RESULT_OK && p != null) startVpn(p)
                 else js("JuanUI.setState('ERROR','',${q("VPN permission was denied")})")
             }
-            701 -> data?.data?.let { u -> exportText?.let { t -> contentResolver.openOutputStream(u)?.use { it.write(t.toByteArray()) } } }
+            701 -> {
+                val target = data?.data
+                val text = exportText
+                exportText = null
+                if (target != null && text != null) {
+                    try { contentResolver.openOutputStream(target)?.use { it.write(text.toByteArray(Charsets.UTF_8)) } }
+                    catch (e: Exception) { JuanBus.log("HJ save failed: ${e.message}") }
+                    startNextExport()
+                } else exportQueue.clear()
+            }
+            702 -> data?.data?.let { uri ->
+                try {
+                    val text = contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                        ?: throw IllegalStateException("Could not read selected config")
+                    require(text.length <= 2_000_000) { "Config file is too large" }
+                    js("JuanUI.importFile(${q(text)})")
+                } catch (e: Exception) { JuanBus.log("HJ import failed: ${e.message}"); js("JuanUI.importError(${q(e.message)})") }
+            }
         }
     }
 
@@ -172,10 +200,38 @@ class JuanWebActivity : Activity() {
             if (Build.VERSION.SDK_INT >= 33) requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 703)
         }
         @JavascriptInterface fun batteryHelp() = runOnUiThread { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
+        @JavascriptInterface fun chooseImport() = runOnUiThread {
+            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("*/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), 702)
+        }
         @JavascriptInterface fun exportFile(name: String, text: String) = runOnUiThread {
-            exportText = text
-            startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
-                .setType("*/*").putExtra(Intent.EXTRA_TITLE, name), 701)
+            exportQueue.clear(); exportQueue.add(name to text); startNextExport()
+        }
+        @JavascriptInterface fun exportFiles(name1: String, text1: String, name2: String, text2: String) = runOnUiThread {
+            exportQueue.clear(); exportQueue.add(name1 to text1); exportQueue.add(name2 to text2); startNextExport()
+        }
+        @JavascriptInterface fun makeHJ(config: String, password: String): String = try {
+            HJConfig.encrypt(config, password)
+        } catch (e: Exception) { "ERROR:${e.message ?: "Could not encrypt HJ config"}" }
+        @JavascriptInterface fun makeUnlockedHJ(config: String): String = try {
+            HJConfig.unlocked(config)
+        } catch (e: Exception) { "ERROR:${e.message ?: "Could not create HJ config"}" }
+        @JavascriptInterface fun openHJ(text: String, password: String): String = try {
+            val box = JSONObject(text)
+            if (box.optBoolean("locked", false)) HJConfig.decrypt(text, password) else HJConfig.open(text)
+        } catch (e: Exception) { "ERROR:${e.message ?: "Could not open HJ config"}" }
+        @JavascriptInterface fun shareFile(name: String, text: String) = runOnUiThread {
+            try {
+                val dir = File(cacheDir, "exports").apply { mkdirs() }
+                val file = File(dir, name.replace(Regex("[^A-Za-z0-9._-]"), "_")).apply { writeText(text, Charsets.UTF_8) }
+                val uri = FileProvider.getUriForFile(this@JuanWebActivity, "$packageName.files", file)
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/octet-stream"; putExtra(Intent.EXTRA_STREAM, uri)
+                    clipData = android.content.ClipData.newUri(contentResolver, file.name, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(Intent.createChooser(send, "Share JUAN HJ config"))
+            } catch (e: Exception) { JuanBus.log("Share failed: ${e.message}") }
         }
         @JavascriptInterface fun listApps() { Thread {
             val pm = packageManager

@@ -63,3 +63,14 @@ These source changes address lifecycle and permission-flow defects visible in th
 ## VMess 2.2.3 response-header nonce fix
 
 Fixes the VMess AEAD response-header KDF inputs: response-header keys are derived from the response body key, while response-header IVs are derived from the response body IV, matching Xray-core. Adds distinct response-header authentication errors and increments Android versionCode to 6 / versionName to 2.2.3.
+
+
+## Version 2.3.0 — JUAN HJ config exporter
+
+- Added an HTTP-Injector-style Config Exporter screen with SSH, V2Ray, Hysteria and Shadowsocks export flags; General, SSH, V2Ray, DNSTT and Extra policy fields; notes; and `.HJ` naming.
+- Added `.HJ` import using Android's document picker, `.HJ` save to any Android document provider (including connected cloud-drive providers), sequential locked/unlocked export, and file sharing through Android Sharesheet.
+- Locked `.HJ` files encrypt the complete profile (including payloads, server names, UUIDs, passwords and private keys) with PBKDF2-HMAC-SHA256 and AES-256-GCM. The GCM authentication tag detects file modification. A password of at least 10 characters is required and is never written to app preferences.
+- Imported owner-locked profiles hide server/host/payload details in the app and disable editing while retaining the ability to connect. Individual export field-lock flags are preserved.
+- Unlocked `.HJ` exports are intentionally readable and should be shared only when that is intended.
+- Device attestation, root/Play Store/device-ID checks, expiry, operator lock, torrent filtering, gaming-only routing, Hysteria and DNSTT are metadata-only in this revision; they are not represented as active enforcement or working tunnel protocols.
+- Client-side encryption protects locked config files, but cannot make an Android APK impossible to reverse engineer, patch or repackage. Strong app-integrity enforcement requires a private release-signing key and server-side verification (for example, Play Integrity).

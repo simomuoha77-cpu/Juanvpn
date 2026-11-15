@@ -7,8 +7,8 @@ android {
         applicationId = "com.juanvpn.app"
         minSdk = 23
         targetSdk = 35
-        versionCode = 6
-        versionName = "2.2.3"
+        versionCode = 7
+        versionName = "2.3.0"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
