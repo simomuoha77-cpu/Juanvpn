@@ -25,6 +25,35 @@ jobs:
           git clone --depth 1 --recursive https://github.com/heiher/hev-socks5-tunnel $J/hev-socks5-tunnel
           echo "--- JNI signatures in this hev version ---"
           grep -n "TProxy" $J/hev-socks5-tunnel/src/hev-jni.c | head -40 || true
+          python3 - <<'PY'
+          import re
+          src = open('app/src/main/jni/hev-socks5-tunnel/src/hev-jni.c').read()
+          rows = re.findall(r'\{\s*"(\w+)"\s*,\s*"(\([^"]*\)[^"]*)"', src)
+          T = {'V':'void','Z':'boolean','B':'byte','C':'char','S':'short','I':'int','J':'long','F':'float','D':'double'}
+          def parse(t, i=0):
+              arr = 0
+              while t[i] == '[':
+                  arr += 1; i += 1
+              if t[i] == 'L':
+                  j = t.index(';', i); name = t[i+1:j].split('/')[-1]; i = j + 1
+              else:
+                  name = T[t[i]]; i += 1
+              return name + '[]' * arr, i
+          out = []
+          for n, s in rows:
+              args = s[1:s.index(')')]; ret = s[s.index(')')+1:]
+              ps = []; i = 0; k = 0
+              while i < len(args):
+                  t, i = parse(args, i); ps.append(t + ' a' + str(k)); k += 1
+              r, _ = parse(ret)
+              out.append('    public static native ' + r + ' ' + n + '(' + ', '.join(ps) + ');')
+          if out:
+              code = 'package hev.htproxy;\n\npublic class TProxyService {\n    static { System.loadLibrary("hev-socks5-tunnel"); }\n' + '\n'.join(out) + '\n}\n'
+              open('app/src/main/java/hev/htproxy/TProxyService.java', 'w').write(code)
+              print(code)
+          else:
+              print('No JNI table found; keeping committed TProxyService.java')
+          PY
           printf 'include $(call all-subdir-makefiles)\n' > $J/Android.mk
           printf 'APP_OPTIM := release\nAPP_PLATFORM := android-24\nAPP_ABI := armeabi-v7a arm64-v8a x86 x86_64\nAPP_CFLAGS := -O3 -DPKGNAME=hev/htproxy\nAPP_SUPPORT_FLEXIBLE_PAGE_SIZES := true\n' > $J/Application.mk
           NDK="${ANDROID_NDK_HOME:-$ANDROID_NDK_LATEST_HOME}"
