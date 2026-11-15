@@ -96,7 +96,7 @@ class JuanVpnService : VpnService() {
 
     companion object { const val START = "juan.START"; const val STOP = "juan.STOP"; const val CFG = "cfg"; private const val NID = 42 }
 
-    private var engine: JuanSshEngine? = null
+    private var engine: TunnelEngine? = null
     private var tun: ParcelFileDescriptor? = null
     @Volatile private var tunFd = -1
     private var worker: Thread? = null
@@ -120,20 +120,31 @@ class JuanVpnService : VpnService() {
         return START_NOT_STICKY
     }
 
-    /** Up to 3 attempts for temporary failures (proxy 5xx, drops, timeouts). Never retries bad credentials or host-key problems. */
-    private fun startWithRetry(c: JuanCfg): JuanSshEngine? {
+    private fun makeEngine(c: JuanCfg): TunnelEngine =
+        if (c.tunnel == "ssh") JuanSshEngine(c, JuanBus::log, trust()) { s -> protect(s) }
+        else JuanXEngine(c, JuanBus::log) { s -> protect(s) }
+
+    /**
+     * Retries temporary failures (proxy 5xx such as 520, dropped handshakes, timeouts) with a growing,
+     * slightly randomised pause so the proxy/CDN can release the previous half-open connection.
+     * Never retries bad credentials or host-key problems.
+     */
+    private fun startWithRetry(c: JuanCfg): TunnelEngine? {
+        val max = if (c.reconnect) c.retries.coerceIn(1, 10) + 1 else 1
+        val rnd = java.util.Random()
         var attempt = 0
         while (true) {
             attempt++
-            val eng = JuanSshEngine(c, JuanBus::log, trust()) { s -> protect(s) }
+            val eng = makeEngine(c)
             engine = eng
             try { eng.start(); return eng } catch (ex: Throwable) {
                 eng.stop()
                 if (stopping || Thread.currentThread().isInterrupted) return null
-                if (attempt >= 3 || !JuanSshEngine.transient(ex)) throw ex
-                JuanBus.log("Attempt $attempt failed: ${JuanSshEngine.friendly(ex.cause ?: ex)} Retrying…")
-                post("CONNECTING", "Retrying ($attempt/3)", "")
-                Thread.sleep(2000)
+                if (attempt >= max || !JuanSshEngine.transient(ex)) throw ex
+                val wait = minOf(1500L * attempt, c.delay * 1000L) + rnd.nextInt(600)
+                JuanBus.log("Attempt $attempt failed: ${JuanSshEngine.friendly(ex.cause ?: ex)} Retrying in ${"%.1f".format(wait / 1000.0)}s…")
+                post("CONNECTING", "Retrying ($attempt/${max - 1})", "")
+                Thread.sleep(wait)
             }
         }
     }
@@ -144,7 +155,7 @@ class JuanVpnService : VpnService() {
             val c = JuanCfg.parse(json)
             c.validate()?.let { throw IllegalArgumentException(it) }
             if (stopping || Thread.currentThread().isInterrupted) return
-            post("CONNECTING", "Opening SSH tunnel", "")
+            post("CONNECTING", when (c.tunnel) { "ssh" -> "Opening SSH tunnel"; "ss" -> "Opening Shadowsocks tunnel"; else -> "Opening ${c.xProto.uppercase()} tunnel" }, "")
             val e = startWithRetry(c) ?: return
             if (stopping || Thread.currentThread().isInterrupted) { e.stop(); return }
             post("CONNECTING", "Starting TUN", "")
@@ -159,9 +170,9 @@ class JuanVpnService : VpnService() {
             JuanBus.log("TUN: packet engine started")
             post("CONNECTING", "Checking tunnel", "")
             JuanBus.log("Tunnel: running traffic check")
-            if (!e.probe()) throw IllegalStateException(e.probeError.ifBlank { "SSH is up but no traffic passed through the tunnel" })
+            if (!e.probe()) throw IllegalStateException(e.probeError.ifBlank { "The tunnel is up but no traffic passed through it" })
             t0 = System.currentTimeMillis()
-            post("CONNECTED", "${c.user}@${c.sshHost}", "")
+            post("CONNECTED", if (c.tunnel == "ssh") "${c.user}@${c.sshHost}" else "${c.xProto.uppercase()}@${c.xHost}", "")
             startStats(e)
         } catch (ex: Throwable) {
             if (stopping || Thread.currentThread().isInterrupted) return
@@ -200,7 +211,7 @@ class JuanVpnService : VpnService() {
         }
     }
 
-    private fun startStats(e: JuanSshEngine) {
+    private fun startStats(e: TunnelEngine) {
         var lu = 0L; var ld = 0L
         statsJob = sched.scheduleAtFixedRate({
             val u = e.up.get(); val d = e.down.get()
@@ -208,9 +219,9 @@ class JuanVpnService : VpnService() {
                 .put("uptime", (System.currentTimeMillis() - t0) / 1000))
             lu = u; ld = d
             if (!e.alive() && !stopping) {
-                JuanBus.log("Tunnel: SSH session lost")
+                JuanBus.log("Tunnel: connection lost")
                 teardown()
-                post("ERROR", "", "SSH session dropped")
+                post("ERROR", "", "Tunnel connection dropped")
                 stopSelf()
             }
         }, 1, 1, TimeUnit.SECONDS)

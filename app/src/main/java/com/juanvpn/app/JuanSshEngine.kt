@@ -31,16 +31,17 @@ interface HostTrust {
     fun save(line: String)
 }
 
-class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, private val trust: HostTrust, private val protect: (Socket) -> Unit = {}) {
-    @Volatile var probeError = ""
-    val up = AtomicLong(); val down = AtomicLong()
-    @Volatile var socksPort = 0; private set
+class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, private val trust: HostTrust, private val protect: (Socket) -> Unit = {}) : TunnelEngine {
+    @Volatile override var probeError = ""
+    override val up = AtomicLong(); override val down = AtomicLong()
+    @Volatile private var port = 0
+    override val socksPort: Int get() = port
     private var session: Session? = null
     private var server: ServerSocket? = null
     private val running = AtomicBoolean(false)
     private val pool = Executors.newCachedThreadPool()
 
-    fun start() {
+    override fun start() {
         val label = if (c.sshPort == 22) c.sshHost else "[${c.sshHost}]:${c.sshPort}"
         val known = listOf(HostKeys.normalize(c.sshHost, c.sshPort, c.known), trust.stored(label) ?: "")
             .filter { it.isNotBlank() }.joinToString("\n")
@@ -79,15 +80,15 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
         log("SSH: authenticated as ${c.user}")
         session = s
         val ss = ServerSocket(0, 128, InetAddress.getByName("127.0.0.1"))
-        server = ss; socksPort = ss.localPort; running.set(true)
+        server = ss; port = ss.localPort; running.set(true)
         pool.execute { while (running.get()) try { val cl = ss.accept(); pool.execute { handle(cl, s) } } catch (_: Exception) { if (running.get()) running.set(false) } }
-        log("Tunnel: local forwarder on 127.0.0.1:$socksPort")
+        log("Tunnel: local forwarder on 127.0.0.1:$port")
     }
 
-    fun alive() = running.get() && session?.isConnected == true
+    override fun alive() = running.get() && session?.isConnected == true
 
     /** Opens and closes a real channel through the SSH server. */
-    fun probe(): Boolean = try {
+    override fun probe(): Boolean = try {
         val ch = session!!.openChannel("direct-tcpip") as ChannelDirectTCPIP
         ch.setHost("1.1.1.1"); ch.setPort(443); ch.connect(8000)
         val ok = ch.isConnected; ch.disconnect(); ok
@@ -124,7 +125,7 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
         } catch (_: Exception) { try { out.write(byteArrayOf(5, 5, 0, 1, 0, 0, 0, 0, 0, 0)) } catch (_: Exception) {} }
     }
 
-    fun stop() {
+    override fun stop() {
         running.set(false)
         try { server?.close() } catch (_: Exception) {}
         try { session?.disconnect() } catch (_: Exception) {}
@@ -135,7 +136,7 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
         fun transient(e: Throwable): Boolean {
             val m = ((e.message ?: "") + " " + (e.cause?.message ?: "")).lowercase()
             if (m.contains("auth") || m.contains("hostkey") || m.contains("host key") || m.contains("algorithm")) return false
-            return m.contains("proxy replied: http/1.1 5") || m.contains("proxy closed") || m.contains("closed by foreign host") ||
+            return m.contains("proxy replied: http/1.1 5") || m.contains("proxy replied: http/1.1 429") || m.contains("websocket closed") || m.contains("proxy closed") || m.contains("closed by foreign host") ||
                 m.contains("timed out") || m.contains("timeout") || m.contains("connection reset") || m.contains("eof") ||
                 m.contains("socket closed") || m.contains("broken pipe") || m.contains("connection closed")
         }
@@ -147,7 +148,9 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
                 m.contains("changed", true) && m.contains("HostKey", true) -> "SERVER HOST KEY CHANGED: this is not the server you trusted before. Do not continue unless the server admin confirms a key change."
                 m.contains("Algorithm negotiation fail", true) && m.contains("server_host_key") -> "The server's host key type differs from the saved one. Tap 'Forget trusted key' on the SSH server screen and connect again."
                 m.contains("Algorithm negotiation fail", true) -> "No common SSH algorithm with this server ($m)"
+                Regex("^Proxy replied: HTTP/1\\.1 52\\d").containsMatchIn(m) -> "The CDN/proxy in front of your server returned ${m.substringAfter("HTTP/1.1 ").take(3)} (it could not get a good answer from the server behind it). This is usually temporary; the app retries automatically. If it never connects, the server behind the proxy is down or overloaded."
                 m.startsWith("Proxy replied: HTTP/1.1 5") -> "The proxy front returned a temporary server error ($m). The server behind it may be down or busy."
+                m.startsWith("Proxy replied: HTTP/1.1 4") -> "The server refused the request ($m). Check the WebSocket path, the Host header and the payload."
                 m.contains("Unable to parse TLS packet", true) -> "That port is not TLS. Use the TLS port (usually 443), or switch Connect from to HTTP proxy."
                 m.contains("HANDSHAKE_FAILURE", true) -> "The TLS server rejected the handshake. It may need a domain-name SNI (an IP address cannot be used), or it does not speak TLS on this port."
                 m.contains("ENETUNREACH", true) -> "No network path to the server. Check your internet connection."

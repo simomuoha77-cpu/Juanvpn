@@ -9,20 +9,40 @@ data class JuanCfg(
     val known: String, val keepalive: Int,
     val pHost: String, val pPort: Int, val pUser: String, val pPass: String, val sni: String,
     val payload: String, val wsPath: String,
-    val appMode: String, val apps: List<String>
+    val appMode: String, val apps: List<String>,
+    val verify: Boolean = true,
+    val reconnect: Boolean = true, val delay: Int = 5, val retries: Int = 5,
+    val tunnel: String = "ssh",
+    val xProto: String = "vless", val xHost: String = "", val xPort: Int = 443, val xSecret: String = "",
+    val xMethod: String = "aes-256-gcm", val xNet: String = "tcp", val xTls: Boolean = true,
+    val xSni: String = "", val xWsPath: String = "/", val xWsHost: String = ""
 ) {
-    fun validate(): String? = when {
+    fun validate(): String? = if (tunnel != "ssh") validateX() else when {
         sshHost.isBlank() -> "SSH host is required"
         sshPort !in 1..65535 -> "SSH port must be 1-65535"
         user.isBlank() -> "SSH username is required"
         pass.isEmpty() && key.isBlank() -> "Enter an SSH password or private key"
         from in listOf("http", "socks5", "tls", "ws") && pHost.isBlank() -> "Proxy host is required"
         from in listOf("http", "socks5", "tls", "ws") && pHost.isNotBlank() && pPort !in 1..65535 -> "Proxy port must be 1-65535"
-        from == "tls" && sni.isBlank() -> "SNI is required for a TLS proxy"
+        from == "sni" && pHost.isNotBlank() && pPort !in 1..65535 -> "Front port must be 1-65535"
+        (from == "tls" || from == "sni") && sni.isBlank() -> "SNI is required for TLS"
+        else -> null
+    }
+
+    private fun validateX(): String? = when {
+        tunnel == "hy" -> "Hysteria needs a QUIC engine that is not bundled in this build"
+        xHost.isBlank() -> "Server address is required"
+        xPort !in 1..65535 -> "Server port must be 1-65535"
+        xSecret.isBlank() -> if (xProto == "vless") "UUID is required" else "Password is required"
+        xProto == "vless" && !Regex("[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}").matches(xSecret.trim()) -> "UUID is not valid"
+        xProto == "ss" && xMethod !in SS_METHODS -> "Unsupported Shadowsocks cipher: $xMethod"
+        xProto == "trojan" && !xTls -> "Trojan requires TLS"
         else -> null
     }
 
     companion object {
+        val SS_METHODS = listOf("aes-128-gcm", "aes-256-gcm", "chacha20-ietf-poly1305")
+
         fun parse(json: String): JuanCfg {
             val o = JSONObject(json)
             fun s(k: String) = o.optString(k, "")
@@ -34,7 +54,15 @@ data class JuanCfg(
                 s("known"), i("keepalive", 30).coerceIn(5, 300),
                 s("pHost").trim(), i("pPort", 443), s("pUser"), s("pPass"), s("sni").trim(),
                 s("payload"), s("wsPath"),
-                s("appMode").ifBlank { "off" }, (0 until (arr?.length() ?: 0)).map { arr!!.getString(it) }
+                s("appMode").ifBlank { "off" }, (0 until (arr?.length() ?: 0)).map { arr!!.getString(it) },
+                o.optBoolean("verify", true),
+                o.optBoolean("reconnect", true), i("delay", 5).coerceIn(1, 60), i("retries", 5).coerceIn(1, 10),
+                when (s("tunnel")) { "v2", "ss", "hy" -> s("tunnel"); else -> "ssh" },
+                when (s("tunnel")) { "ss" -> "ss"; "v2" -> s("xProto").let { if (it == "trojan") "trojan" else "vless" }; else -> "vless" },
+                s("xHost").trim(), i("xPort", 443), s("xSecret").trim(),
+                s("xMethod").ifBlank { "aes-256-gcm" }.lowercase(),
+                if (s("xNet") == "ws") "ws" else "tcp",
+                o.optBoolean("xTls", true), s("xSni").trim(), s("xWsPath").ifBlank { "/" }, s("xWsHost").trim()
             )
         }
     }

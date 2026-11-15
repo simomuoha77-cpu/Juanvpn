@@ -3,7 +3,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="dark"><title>JUAN VPN</title>
 <style>
-:root{--bg:#0a111f;--s1:#111a2e;--s2:#17233b;--ln:#22314d;--tx:#e9eff9;--mu:#8a9ab4;--ac:#23d5ab;--ac2:#0e7f6b;--bad:#ff6b6b;--warn:#f5b84b;--r:14px;color-scheme:dark}
+:root{--bg:#0a111f;--s1:#111a2e;--s2:#17233b;--ln:#22314d;--tx:#e9eff9;--mu:#8a9ab4;--ac:#23d5ab;--ac2:#0e7f6b;--bad:#ff6b6b;--ok:#3ddc84;--warn:#f5b84b;--r:14px;color-scheme:dark}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--tx);font:15px/1.45 Inter,system-ui,"Segoe UI",Roboto,sans-serif}
 button,input,textarea,select{font:inherit;color:inherit}
@@ -42,11 +42,12 @@ input.sw:checked{background:var(--ac2)}input.sw:checked::after{left:23px;backgro
 .start{height:56px;font-size:17px;margin-bottom:14px}
 .st{display:flex;align-items:center;gap:10px;padding:14px 16px}
 .dot{width:12px;height:12px;border-radius:50%;background:#52627e;flex:none}
-.CONNECTED .dot{background:var(--ac);box-shadow:0 0 0 5px #23d5ab26}.CONNECTING .dot{background:var(--warn);animation:p 1s infinite}.ERROR .dot{background:var(--bad)}
+.CONNECTED .dot{background:var(--ok);box-shadow:0 0 0 5px #3ddc8433}.st.CONNECTED{background:#3ddc8412}.st.CONNECTED b{color:var(--ok)}.st.ERROR b{color:var(--bad)}.st.CONNECTING b{color:var(--warn)}.CONNECTING .dot{background:var(--warn);animation:p 1s infinite}.ERROR .dot{background:var(--bad)}
 @keyframes p{50%{opacity:.35}}@media(prefers-reduced-motion:reduce){.CONNECTING .dot{animation:none}}
 .stats{display:grid;grid-template-columns:1fr 1fr 1fr;border-top:1px solid var(--ln)}
 .stats div{padding:12px 14px;border-right:1px solid var(--ln);border-bottom:1px solid var(--ln)}.stats div:nth-child(3n){border-right:0}.stats div:nth-last-child(-n+3){border-bottom:0}
 .stats b{display:block;font-size:15px;font-variant-numeric:tabular-nums}.stats small{color:var(--mu);font-size:11.5px}
+.ll{display:block}.ll.bad{color:var(--bad)}.ll.ok{color:var(--ok)}.ll.warn{color:var(--warn)}.badge.bad{color:var(--warn)}
 .err{color:var(--bad);font-size:13px;padding:0 16px 14px}
 pre{margin:0;padding:14px 16px;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-all;color:#cfe0f5;min-height:120px;max-height:55vh;overflow:auto}
 .pv{margin:0 16px 14px;border:1px dashed var(--ln);border-radius:10px;padding:10px 12px;font:12px/1.5 ui-monospace,Menlo,monospace;color:#b9c8e0;word-break:break-all;background:#0b1424}
@@ -72,14 +73,15 @@ details{border-top:1px solid var(--ln);padding:12px 16px}details:first-of-type{b
 <header><div class="bar"><button class="ib" id="lead" aria-label="Menu"></button><h1 id="ttl">JUAN VPN</h1><button class="ib" id="gear" aria-label="Settings"></button></div><nav class="tabs" id="tabs"></nav></header>
 <main id="v"></main><div id="md"><div class="sheet" id="sh"></div></div><div id="toast"></div>
 <script>
-const VER='2.0.0',$=s=>document.querySelector(s);
+const VER='2.1.0',$=s=>document.querySelector(s);
 const I={menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',back:'<path d="M15 5l-7 7 7 7"/>',gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',ch:'<path d="M9 5l7 7-7 7"/>',ed:'<path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/>'};
 const ic=(n,c='')=>`<svg class="${c}" viewBox="0 0 24 24">${I[n]}</svg>`;
-const SECRET=['pass','key','keyPass','pPass'];
+const SECRET=['pass','key','keyPass','pPass','xSecret'];
 const D={name:'My server',tunnel:'ssh',from:'direct',custom:true,sshHost:'',sshPort:'22',user:'',pass:'',key:'',keyPass:'',known:'',keepalive:'30',
 pHost:'',pPort:'443',pUser:'',pPass:'',sni:'',verify:true,ws:false,wsPath:'/',payload:'GET wss://[host] HTTP/1.1[crlf]Host: [host][crlf]Connection: upgrade[crlf]Upgrade: websocket[crlf][crlf]',
 dnsMode:'custom',dns1:'1.1.1.1',dns2:'1.0.0.1',dnsFwd:true,defRoute:true,ipv6:false,kill:false,routes:'',excl:'',appMode:'off',apps:[],
-reconnect:true,delay:'5',retries:'5',wake:false};
+reconnect:true,delay:'5',retries:'5',wake:false,
+tunnel:'ssh',xProto:'vless',xHost:'',xPort:'443',xSecret:'',xMethod:'aes-256-gcm',xNet:'ws',xTls:true,xSni:'',xWsPath:'/',xWsHost:'',link:''};
 let S={...D},LOG=[],ST={state:'DISCONNECTED',detail:'',error:''},STAT={},cur='home',appsList=[],toolOut='';
 try{const r=JSON.parse(localStorage.getItem('juan.p')||'{}');SECRET.forEach(k=>delete r[k]);S={...D,...r}}catch(e){}
 const save=()=>{try{const c={...S};SECRET.forEach(k=>delete c[k]);localStorage.setItem('juan.p',JSON.stringify(c))}catch(e){}};
@@ -93,21 +95,52 @@ const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('on');clearT
 window.JuanUI={hostKey(h,t,f){modal(`<h2>Trust this server?</h2><p>First connection to <b>${esc(h)}</b></p><p>Key type: ${esc(t)}</p><pre style="padding:10px 12px;min-height:0;background:#0b1424;border-radius:10px">${esc(f)}</pre><p>Compare this fingerprint with your server admin. If it differs, cancel.</p><div class="btns" style="padding:12px 0 0;border:0"><button class="btn sm pri" data-act="hkyes">Trust and connect</button><button class="btn sm bad" data-act="hkno">Cancel</button></div>`)},back(){if($('#md').classList.contains('on')){unmodal();return true}if(document.body.classList.contains('open')){document.body.classList.remove('open');return true}if(cur!=='home'){nav(PAR[cur]||'home');return true}return false},setState(s,d,e){ST={state:s,detail:d||'',error:e||(s==='ERROR'?ST.error:'')};render()},
 stats(o){STAT=o||{};if(cur==='home')render()},log:m=>log(m,false),apps(a){appsList=a||[];if(cur==='apps')render()},toolResult(t){toolOut=t;if(cur==='tools')render()}};
 
+/* log colours: red = errors, green = success/connected, amber = warnings */
+const LC=l=>{const t=String(l).replace(/^\[?\d{2}:\d{2}:\d{2}\]?\s+/,'');if(/^Native log/.test(t))return'';
+if(/^State: ERROR|^Error:|\bfail(ed|ure)?\b|refused|rejected|denied|dropped|\blost\b|unreachable|timed out|timeout|cannot|could not|unable|invalid|bad data|closed by foreign|stopped right|revoked|HOST KEY CHANGED|not bundled|Unsupported|not supported/i.test(t))return'bad';
+if(/warning/i.test(t))return'warn';
+if(/^State: CONNECTED|authenticated as|handshake OK|certificate verified|packet engine started|transport OK|forwarder on|SOCKS5 CONNECT OK/i.test(t))return'ok';return''};
+const logHtml=()=>LOG.length?LOG.map(l=>`<span class="ll ${LC(l)}">${esc(l)}</span>`).join(''):'No events yet.';
+
+/* share links: vless:// trojan:// ss:// */
+const b64=x=>{x=decodeURIComponent(x).replace(/-/g,'+').replace(/_/g,'/');while(x.length%4)x+='=';return atob(x)};
+function parseLink(t){t=(t||'').trim();const m=t.match(/^([a-z0-9]+):\/\//i);if(!m)throw Error('Not a share link');const sc=m[1].toLowerCase();
+if(sc==='vmess')throw Error('VMess is not supported yet. Use a VLESS, Trojan or Shadowsocks link.');
+if(sc==='hysteria'||sc==='hysteria2'||sc==='hy2')throw Error('Hysteria needs a QUIC engine that is not bundled in this build.');
+const frag=t.includes('#')?decodeURIComponent(t.slice(t.indexOf('#')+1)):'';const body=t.slice(m[0].length).split('#')[0];
+if(sc==='ss'){let main=body.split('?')[0],q=new URLSearchParams(body.includes('?')?body.split('?')[1]:'');let cred,hp;
+if(main.includes('@')){const i=main.lastIndexOf('@');let u=main.slice(0,i);hp=main.slice(i+1);cred=u.includes(':')?decodeURIComponent(u):b64(u)}else{const d=b64(main.replace(/\/$/,''));const i=d.lastIndexOf('@');cred=d.slice(0,i);hp=d.slice(i+1)}
+const ci=cred.indexOf(':');const method=cred.slice(0,ci).toLowerCase(),pw=cred.slice(ci+1);const hi=hp.replace(/\/$/,'').lastIndexOf(':');
+const o={tunnel:'ss',xProto:'ss',xMethod:method,xSecret:pw,xHost:hp.slice(0,hi).replace(/^\[|\]$/g,''),xPort:hp.slice(hi+1),xNet:'tcp',xTls:false,xSni:'',xWsPath:'/',xWsHost:''};
+const pl=q.get('plugin');if(pl){const parts=decodeURIComponent(pl).split(';');if(!/v2ray-plugin|xray-plugin/.test(parts[0]))throw Error('Plugin "'+parts[0]+'" is not supported');o.xNet='ws';parts.slice(1).forEach(p=>{if(p==='tls')o.xTls=true;else if(p.startsWith('host=')){o.xWsHost=p.slice(5);o.xSni=p.slice(5)}else if(p.startsWith('path='))o.xWsPath=p.slice(5);else if(p==='mode=quic')throw Error('QUIC plugin mode is not supported')})}
+if(!['aes-128-gcm','aes-256-gcm','chacha20-ietf-poly1305'].includes(method))throw Error('Cipher '+method+' is not supported (use aes-128-gcm, aes-256-gcm or chacha20-ietf-poly1305)');
+return{o,name:frag}}
+if(sc==='vless'||sc==='trojan'){const u=new URL(t);const q=u.searchParams;const net=q.get('type')||'tcp';
+if(sc==='vless'&&q.get('flow'))throw Error('XTLS flow ('+q.get('flow')+') is not supported. Use a profile without flow.');
+const sec=q.get('security')||(sc==='trojan'?'tls':'none');if(sec==='reality')throw Error('REALITY is not supported yet.');
+if(!['tcp','ws'].includes(net))throw Error('Transport "'+net+'" is not supported (only tcp and ws).');
+const o={tunnel:'v2',xProto:sc,xSecret:decodeURIComponent(u.username),xHost:u.hostname.replace(/^\[|\]$/g,''),xPort:u.port||'443',xNet:net,xTls:sec==='tls',xSni:q.get('sni')||q.get('peer')||'',xWsPath:q.get('path')?decodeURIComponent(q.get('path')):'/',xWsHost:q.get('host')||''};
+if(q.get('allowInsecure')==='1')o.verify=false;return{o,name:frag}}
+throw Error('Unsupported link type: '+sc)}
+
 /* components */
 const go=(n,a='')=>`<button class="row" data-go="${n}"><div class="t"><b>${a[0]}</b><small>${esc(a[1]||'')}</small></div>${ic('ch','ch')}</button>`;
 const f=(l,k,o={})=>`<div class="fld"><label>${l}</label>${o.area?`<textarea data-k="${k}" ${o.ph?`placeholder="${o.ph}"`:''} spellcheck="false" autocapitalize="off">${esc(S[k])}</textarea>`:`<input data-k="${k}" value="${esc(S[k])}" ${o.t?`type="${o.t}"`:''} ${o.m?`inputmode="${o.m}"`:''} ${o.ph?`placeholder="${o.ph}"`:''} autocapitalize="off" autocomplete="off" spellcheck="false">`}${o.h?`<div class="h">${o.h}</div>`:''}</div>`;
 const sw=(l,k,s='',re=0)=>`<label class="row"><div class="t"><b>${l}</b>${s?`<small style="white-space:normal">${s}</small>`:''}</div><input type="checkbox" class="sw" data-k="${k}" ${re?'data-re':''} ${S[k]?'checked':''}></label>`;
-const rad=(k,v,l,dis)=>`<label class="row ${dis?'off':''}"><input type="radio" name="${k}" value="${v}" data-k="${k}" data-re ${S[k]===v?'checked':''}><div class="t"><b>${l}</b></div>${dis?'<span class="badge">Not supported</span>':''}</label>`;
+const rad=(k,v,l,dis,why)=>`<label class="row ${dis?'off':''}"><input type="radio" name="${k}" value="${v}" data-k="${k}" data-re ${S[k]===v?'checked':''}><div class="t"><b>${l}</b></div>${dis?`<span class="badge">${why||'Not supported'}</span>`:''}</label>`;
 const card=(h,b)=>`<section class="card">${h?`<h3>${h}</h3>`:''}${b}</section>`;
 
-const FROM={direct:'Direct',http:'HTTP proxy',socks5:'SOCKS5 proxy',tls:'TLS/SSL proxy',ws:'WebSocket'};
-const sum=()=>`SSH ← ${FROM[S.from]}${S.custom&&['http','tls','ws'].includes(S.from)?' (custom payload)':''}`;
+const FROM={direct:'Direct',sni:'Direct + SNI (TLS)',http:'HTTP proxy',socks5:'SOCKS5 proxy',tls:'TLS/SSL proxy',ws:'WebSocket'};
+const XN={ssh:'Secure Shell (SSH)',v2:'V2Ray / Xray',ss:'Shadowsocks',hy:'Hysteria'};
+const xdesc=()=>S.xHost?`${S.tunnel==='ss'?'ss':S.xProto}://${S.xHost}:${S.xPort}`+(S.xNet==='ws'?' · ws':'')+(S.xTls?' · tls':''):'Not set';
+const PAY=['http','tls','ws','sni'];
+const sum=()=>S.tunnel!=='ssh'?`${XN[S.tunnel]} · ${S.tunnel==='ss'?'Shadowsocks':S.xProto.toUpperCase()}${S.xNet==='ws'?' + WebSocket':''}${S.xTls?' + TLS':''}`:`SSH ← ${FROM[S.from]}${S.custom&&PAY.includes(S.from)?' (custom payload)':''}`;
 const preview=()=>esc(S.payload.replace(/\[host\]/g,S.sni||S.pHost||S.sshHost||'host').replace(/\[crlf\]/g,'\\r\\n'));
 const modal=x=>{$('#sh').innerHTML=x;$('#md').classList.add('on')},unmodal=()=>$('#md').classList.remove('on');
 const mf=(l,k,m)=>`<div class="fld" style="padding:0 0 12px;border:0"><label>${l}</label><input data-k="${k}" value="${esc(S[k])}" ${m?'inputmode="numeric"':''} autocapitalize="off" spellcheck="false"></div>`;
-const EDIT={proxy:()=>modal(`<h2>Remote proxy</h2>${mf('Host / IP','pHost')}${mf('Port','pPort',1)}<button class="btn pri" data-act="mdclose">Done</button>`),sni:()=>modal(`<h2>Server name (SNI)</h2>${mf('Server name','sni')}<p>Checked against the server certificate.</p><button class="btn pri" data-act="mdclose">Done</button>`)};
+const EDIT={proxy:()=>modal(`<h2>Remote proxy</h2>${mf('Host / IP','pHost')}${mf('Port','pPort',1)}<button class="btn pri" data-act="mdclose">Done</button>`),sni:()=>modal(`<h2>Server name (SNI)</h2>${mf('Server name','sni')}<p>Sent in the TLS handshake. With Verify on, the server certificate must be valid for this name.</p>${sw('Verify certificate','verify','Turn off only for your own server with a self-signed certificate or a borrowed SNI.')}<button class="btn pri" data-act="mdclose">Done</button>`)};
 const ed=(k,t,v)=>`<button class="row" data-edit="${k}"><div class="t"><b>${t}</b><small>${esc(v)}</small></div>${ic('ed','ch')}</button>`;
-const edRows=()=>(S.from==='direct'?'':ed('proxy','Remote proxy',S.pHost?S.pHost+':'+S.pPort:'Not set'))+(['tls','ws'].includes(S.from)?ed('sni','Server name (SNI)',S.sni||'Not set'):'');
+const edRows=()=>S.tunnel!=='ssh'?'':(S.from==='direct'?'':ed('proxy',S.from==='sni'?'Front address (optional)':'Remote proxy',S.pHost?S.pHost+':'+S.pPort:(S.from==='sni'?'Same as SSH server':'Not set')))+(['tls','ws','sni'].includes(S.from)?ed('sni','Server name (SNI)',S.sni||'Not set'):'');
 const fmt=n=>{n=+n||0;const u=['B','KB','MB','GB'];let i=0;while(n>=1024&&i<3){n/=1024;i++}return (i?n.toFixed(1):n|0)+' '+u[i]};
 const dur=s=>{s=+s||0;const p=x=>String(x).padStart(2,'0');return `${p(s/3600|0)}:${p(s/60%60|0)}:${p(s%60)}`};
 
@@ -118,14 +151,26 @@ return `<button class="btn start ${on?'bad':'pri'}" data-act="${on?'stop':'start
 ${card('',`<div class="st ${ST.state}"><span class="dot"></span><div style="flex:1"><b>${ST.state[0]+ST.state.slice(1).toLowerCase()}</b><div style="color:var(--mu);font-size:12.5px">${esc(ST.detail||S.name)}</div></div></div>
 <div class="stats"><div><b>${dur(STAT.uptime)}</b><small>Uptime</small></div><div><b>${fmt(STAT.downBps)}/s</b><small>Download</small></div><div><b>${fmt(STAT.upBps)}/s</b><small>Upload</small></div><div><b>${fmt(STAT.down)}</b><small>Downloaded</small></div><div><b>${fmt(STAT.up)}</b><small>Uploaded</small></div><div><b>${esc(STAT.ip||'—')}</b><small>Public IP</small></div></div>${ST.error?`<div class="err" style="padding-top:12px">${esc(ST.error)}</div>`:''}`)}
 ${card('',go('tunnel',[sum(),'Tunnel type and connect-from']))}
-${S.custom&&['http','tls','ws'].includes(S.from)?card('Payload',`<div class="fld" style="border:0"><textarea data-k="payload" spellcheck="false" autocapitalize="off" style="min-height:110px">${esc(S.payload)}</textarea></div>`+edRows()):(edRows()?card('',edRows()):'')}
-${card('',go('ssh',['SSH server',(S.user&&S.sshHost)?S.user+'@'+S.sshHost+':'+S.sshPort:'Not set']))}
+${S.tunnel!=='ssh'?'':S.custom&&PAY.includes(S.from)?card('Payload',`<div class="fld" style="border:0"><textarea data-k="payload" spellcheck="false" autocapitalize="off" style="min-height:110px">${esc(S.payload)}</textarea></div>`+edRows()):(edRows()?card('',edRows()):'')}
+${S.tunnel==='ssh'?card('',go('ssh',['SSH server',(S.user&&S.sshHost)?S.user+'@'+S.sshHost+':'+S.sshPort:'Not set'])):card('',go('xserver',[XN[S.tunnel]+' server',xdesc()]))}
 ${card('',`<label class="row"><div class="t"><b>DNS (${S.dnsMode==='auto'?'Automatic':esc(S.dns1)})</b><small>${S.dnsFwd?'Forwarded through tunnel':'Resolved locally'}</small></div></label>`+go('dns',['DNS and routing','Servers, routes, kill switch']))}`},
 
-tunnel(){return card('Tunnel type',rad('tunnel','ssh','Secure Shell (SSH)')+rad('tunnel','v2','V2Ray / Xray',1)+rad('tunnel','hy','Hysteria',1)+rad('tunnel','ss','Shadowsocks',1))
-+card('Connect from',Object.entries(FROM).map(([k,l])=>rad('from',k,l)).join(''))
+tunnel(){return card('Tunnel type',rad('tunnel','ssh','Secure Shell (SSH)')+rad('tunnel','v2','V2Ray / Xray (VLESS, Trojan)')+rad('tunnel','hy','Hysteria',1,'Needs QUIC engine')+rad('tunnel','ss','Shadowsocks'))
++(S.tunnel==='ssh'?card('Connect from',Object.entries(FROM).map(([k,l])=>rad('from',k,l)).join(''))
 +card('Options',sw('Custom payload','custom','Sent before the SSH handshake over HTTP, TLS or WebSocket transports.',1))
-+'<div class="note">Only SSH is implemented. Other tunnel types stay disabled until their engines exist.</div>'},
++'<div class="note">Direct + SNI connects straight to your server over TLS with the server name you choose. Leave the front address empty to use the SSH host.</div>'
+:card('',go('xserver',[XN[S.tunnel]+' server',xdesc()]))+'<div class="note">VLESS and Trojan work over TCP, TLS and WebSocket. VMess, REALITY, XTLS flow and Hysteria (QUIC) are not available in this build.</div>')},
+
+xserver(){const v2=S.tunnel==='v2',ss=S.tunnel==='ss';
+return card('Import',`<div class="fld"><label>Paste a share link</label><textarea data-k="link" spellcheck="false" autocapitalize="off" placeholder="vless://… trojan://… ss://…" style="min-height:70px">${esc(S.link)}</textarea></div><div class="btns"><button class="btn sm pri" data-act="impLink">Import link</button></div>`)
++card('Server',(v2?`<div class="fld"><label>Protocol</label><select data-k="xProto" data-re><option value="vless" ${S.xProto==='vless'?'selected':''}>VLESS</option><option value="trojan" ${S.xProto==='trojan'?'selected':''}>Trojan</option></select></div>`:'')
++f('Address','xHost',{ph:'server.example.com'})+f('Port','xPort',{m:'numeric'})
++f(ss||S.xProto==='trojan'?'Password':'UUID','xSecret',{t:ss||S.xProto==='trojan'?'password':'text'})
++(ss?`<div class="fld"><label>Cipher</label><select data-k="xMethod"><option value="aes-256-gcm" ${S.xMethod==='aes-256-gcm'?'selected':''}>aes-256-gcm</option><option value="aes-128-gcm" ${S.xMethod==='aes-128-gcm'?'selected':''}>aes-128-gcm</option><option value="chacha20-ietf-poly1305" ${S.xMethod==='chacha20-ietf-poly1305'?'selected':''}>chacha20-ietf-poly1305</option></select></div>`:''))
++card('Transport',`<div class="fld"><label>Network</label><select data-k="xNet" data-re><option value="tcp" ${S.xNet==='tcp'?'selected':''}>TCP</option><option value="ws" ${S.xNet==='ws'?'selected':''}>WebSocket</option></select></div>`
++sw('TLS','xTls','Encrypt the connection to the server.',1)
++(S.xTls?f('Server name (SNI)','xSni',{h:'Leave empty to use the address. Sent in the TLS handshake.'})+sw('Verify certificate','verify','Turn off only for your own server with a self-signed certificate or a borrowed SNI.'):'')
++(S.xNet==='ws'?f('WebSocket path','xWsPath')+f('WebSocket Host header','xWsHost',{h:'Leave empty to use the SNI or address.'}):''))},
 
 ssh(){return card('Server',f('Profile name','name')+`<div class="g2" style="padding:0 16px"><div class="fld" style="padding-left:0;border:0"><label>Host</label><input data-k="sshHost" value="${esc(S.sshHost)}" autocapitalize="off"></div><div class="fld" style="padding-right:0;border:0"><label>Port</label><input data-k="sshPort" value="${esc(S.sshPort)}" inputmode="numeric"></div></div>`)
 +card('Authentication',f('Username','user')+f('Password','pass',{t:'password'})+f('Private key (optional)','key',{area:1,ph:'-----BEGIN OPENSSH PRIVATE KEY-----'})+f('Key passphrase','keyPass',{t:'password'})+'<div class="fld"><div class="h" style="margin:0">Credentials are handed to Android Keystore storage and are not kept in the page.</div></div>')
@@ -146,7 +191,7 @@ dns(){return card('DNS',`<div class="fld"><label>Mode</label><select data-k="dns
 apps(){return card('Mode',`<div class="fld"><select data-k="appMode" data-re><option value="off" ${S.appMode==='off'?'selected':''}>Off — route all apps</option><option value="inc" ${S.appMode==='inc'?'selected':''}>Only selected apps</option><option value="exc" ${S.appMode==='exc'?'selected':''}>All except selected</option></select></div>`)
 +(S.appMode==='off'?'':card('Installed apps',appsList.length?appsList.map(a=>`<label class="ap"><div class="t"><b>${esc(a.name)}</b><small>${esc(a.pkg)}</small></div><input type="checkbox" class="sw" data-app="${esc(a.pkg)}" ${S.apps.includes(a.pkg)?'checked':''}></label>`).join(''):'<div class="fld"><div class="h" style="margin:0">No app list yet. The Android layer supplies installed apps when this screen opens.</div></div>'))},
 
-settings(){return card('Tunnel',go('tunnel',['Secure Shell (SSH)',sum()])+go('ssh',['SSH server','Host, auth, host key'])+go('dns',['DNS and routing','']))
+settings(){return card('Tunnel',go('tunnel',[XN[S.tunnel],sum()])+go('ssh',['SSH server','Host, auth, host key'])+go('xserver',['V2Ray / Shadowsocks server','Address, UUID or password, transport'])+go('dns',['DNS and routing','']))
 +card('Reliability',sw('Auto reconnect','reconnect','',1)+(S.reconnect?f('Delay (seconds)','delay',{m:'numeric'})+f('Max retries','retries',{m:'numeric',h:'Stops early on bad credentials or an unreachable server.'}):'')+sw('CPU wake lock','wake','Fewer drops with the screen off. Uses more battery.')+`<button class="row" data-act="batt"><div class="t"><b>Battery optimization</b><small>Exempt JUAN VPN so it stays alive</small></div>${ic('ch','ch')}</button>`)
 +card('Notifications',`<button class="row" data-act="notif"><div class="t"><b>Allow notifications</b><small>Needed for the Disconnect action on Android 13+</small></div>${ic('ch','ch')}</button>`)},
 
@@ -155,7 +200,7 @@ return card('Saved profiles',L.length?L.map((p,i)=>`<div class="ap"><div class="
 +card('Manage',`<div class="btns"><button class="btn sm pri" data-act="saveP">Save current</button><button class="btn sm" data-act="exportP">Export</button><button class="btn sm" data-act="importP">Import</button></div>`)
 +'<div class="note">Exports never include passwords or private keys.</div><input type="file" id="fi" accept=".json,application/json" hidden>'},
 
-log(){return card('Connection log',`<pre>${esc(LOG.length?LOG.join('\n'):'No events yet.')}</pre><div class="btns"><button class="btn sm pri" data-act="rl">Refresh</button><button class="btn sm" data-act="cl">Copy</button><button class="btn sm" data-act="xl">Export</button><button class="btn sm" data-act="nl">Native log</button><button class="btn sm bad" data-act="clr">Clear</button></div>`)+'<div class="note">Passwords, keys and tokens are never written to the log.</div>'},
+log(){return card('Connection log',`<pre>${logHtml()}</pre><div class="btns"><button class="btn sm pri" data-act="rl">Refresh</button><button class="btn sm" data-act="cl">Copy</button><button class="btn sm" data-act="xl">Export</button><button class="btn sm" data-act="nl">Native log</button><button class="btn sm bad" data-act="clr">Clear</button></div>`)+'<div class="note">Passwords, keys and tokens are never written to the log.</div>'},
 
 tools(){return card('Target',f('Host or IP','tHost',{ph:S.sshHost||'example.com'}))
 +card('Tests',[['dns','DNS lookup'],['reach','Server reachability'],['ssh','SSH port check'],['proxy','Proxy connectivity'],['tls','TLS handshake'],['ip','IP information'],['diag','Full diagnostics']].map(([k,l])=>`<button class="row" data-tool="${k}"><div class="t"><b>${l}</b></div>${ic('ch','ch')}</button>`).join(''))
@@ -166,9 +211,9 @@ return card('Guides',h.map(([a,b])=>`<details><summary>${a}</summary><p>${b}</p>
 
 about(){return card('',`<div class="st" style="display:block"><b style="font-size:22px">JUAN VPN</b><div style="color:var(--ac);font-size:13px">Version ${VER}</div><p style="color:#c3cfe2">Use only with servers and networks you own or are authorised to use.</p></div>`+['Privacy policy','Terms of service','Support','Open-source licences'].map(x=>`<div class="row"><div class="t"><b>${x}</b></div></div>`).join(''))}
 };
-const T={home:'JUAN VPN',tunnel:'Tunnel type',ssh:'SSH server',tls:'Proxy and TLS',payload:'Payload',dns:'DNS and routing',apps:'Apps filter',settings:'Settings',servers:'Servers',log:'JUAN VPN',tools:'JUAN VPN',help:'JUAN VPN',about:'About'};
-const TAB=['home','log','tools','help'],PAR={apps:'dns',tunnel:'home',ssh:'home',tls:'home',payload:'home',dns:'home'};
-const MENU=[['home','Home'],['servers','Servers'],['ssh','SSH server'],['tunnel','Tunnel type'],['payload','Payload'],['dns','DNS and routing'],0,['log','Logs'],['tools','Tools'],['settings','Settings'],['help','Help'],['about','About']];
+const T={home:'JUAN VPN',tunnel:'Tunnel type',xserver:'Proxy server',ssh:'SSH server',tls:'Proxy and TLS',payload:'Payload',dns:'DNS and routing',apps:'Apps filter',settings:'Settings',servers:'Servers',log:'JUAN VPN',tools:'JUAN VPN',help:'JUAN VPN',about:'About'};
+const TAB=['home','log','tools','help'],PAR={apps:'dns',tunnel:'home',xserver:'home',ssh:'home',tls:'home',payload:'home',dns:'home'};
+const MENU=[['home','Home'],['servers','Servers'],['ssh','SSH server'],['xserver','V2Ray / Shadowsocks server'],['tunnel','Tunnel type'],['payload','Payload'],['dns','DNS and routing'],0,['log','Logs'],['tools','Tools'],['settings','Settings'],['help','Help'],['about','About']];
 
 function render(){const y=scrollY;$('#v').innerHTML=V[cur]();$('#ttl').textContent=T[cur];
 const tab=TAB.includes(cur),sub=!tab&&cur!=='servers'&&cur!=='settings'&&cur!=='about'||PAR[cur];
@@ -181,9 +226,12 @@ $('#lead').onclick=()=>$('#lead').dataset.mode==='menu'?document.body.classList.
 $('#gear').onclick=()=>nav('settings');
 
 /* actions */
-function validate(){const e=[];if(!S.sshHost.trim())e.push('SSH host is required');const p=+S.sshPort;if(!(p>0&&p<65536))e.push('SSH port must be 1–65535');if(!S.user.trim())e.push('SSH username is required');if(!S.pass&&!S.key)e.push('Enter an SSH password or private key');if(['http','socks5','tls'].includes(S.from)&&!S.pHost.trim())e.push('Proxy host is required');if(S.from==='tls'&&!S.sni.trim())e.push('SNI is required for a TLS proxy');return e}
+function validate(){const e=[];if(S.tunnel==='hy'){e.push('Hysteria needs a QUIC engine that is not bundled in this build');return e}
+if(S.tunnel!=='ssh'){if(!S.xHost.trim())e.push('Server address is required');const p=+S.xPort;if(!(p>0&&p<65536))e.push('Server port must be 1–65535');if(!S.xSecret.trim())e.push(S.tunnel==='ss'||S.xProto==='trojan'?'Password is required':'UUID is required');if(S.tunnel==='v2'&&S.xProto==='trojan'&&!S.xTls)e.push('Trojan requires TLS');return e}
+if(!S.sshHost.trim())e.push('SSH host is required');const p=+S.sshPort;if(!(p>0&&p<65536))e.push('SSH port must be 1–65535');if(!S.user.trim())e.push('SSH username is required');if(!S.pass&&!S.key)e.push('Enter an SSH password or private key');if(['http','socks5','tls','ws'].includes(S.from)&&!S.pHost.trim())e.push('Proxy host is required');if((S.from==='tls'||S.from==='sni')&&!S.sni.trim())e.push('SNI is required for TLS');return e}
 const TPL={ws:'GET wss://[host] HTTP/1.1[crlf]Host: [host][crlf]Connection: upgrade[crlf]Upgrade: websocket[crlf][crlf]',connect:'CONNECT [host]:443 HTTP/1.1[crlf]Host: [host][crlf][crlf]',get:'GET / HTTP/1.1[crlf]Host: [host][crlf][crlf]'};
 const ACT={
+impLink(){try{const r=parseLink(S.link);Object.assign(S,r.o);if(r.name)S.name=r.name;S.link='';save();if(B()&&B().saveSecrets)B().saveSecrets(JSON.stringify(Object.fromEntries(SECRET.map(k=>[k,S[k]||'']))));log('Link imported: '+S.tunnel+' '+S.xHost+':'+S.xPort);toast('Link imported');render()}catch(x){toast(x.message);log('Import failed: '+x.message)}},
 forget(){S.known='';save();B()&&B().forgetHostKey&&B().forgetHostKey(S.sshHost,String(S.sshPort));toast('Trusted key cleared');render()},
 mdclose(){unmodal();render()},hkyes(){B()&&B().hostKeyAnswer&&B().hostKeyAnswer(true);unmodal()},hkno(){B()&&B().hostKeyAnswer&&B().hostKeyAnswer(false);unmodal()},
 start(){const e=validate();if(e.length){ST.error=e[0];log('Validation failed: '+e[0]);render();return}

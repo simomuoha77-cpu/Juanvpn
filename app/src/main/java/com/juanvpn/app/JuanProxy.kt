@@ -14,12 +14,26 @@ import javax.net.ssl.SSLPeerUnverifiedException
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 
-/** TLS with SNI. Certificate chain and hostname are always verified. */
-fun tlsWrap(plain: Socket, sni: String, port: Int): SSLSocket {
-    val s = (SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(plain, sni, port, true) as SSLSocket
+private val trustAll = arrayOf<javax.net.ssl.TrustManager>(object : javax.net.ssl.X509TrustManager {
+    override fun checkClientTrusted(c: Array<java.security.cert.X509Certificate>?, a: String?) {}
+    override fun checkServerTrusted(c: Array<java.security.cert.X509Certificate>?, a: String?) {}
+    override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = emptyArray()
+})
+
+/** TLS with SNI. By default the certificate chain and hostname are verified; verify=false is an explicit user choice. */
+fun tlsWrap(plain: Socket, sni: String, port: Int, verify: Boolean = true): SSLSocket {
+    val factory = if (verify) SSLSocketFactory.getDefault() as SSLSocketFactory
+    else javax.net.ssl.SSLContext.getInstance("TLS").apply { init(null, trustAll, java.security.SecureRandom()) }.socketFactory
+    val s = factory.createSocket(plain, sni, port, true) as SSLSocket
     s.enabledProtocols = s.supportedProtocols.filter { it == "TLSv1.3" || it == "TLSv1.2" }.toTypedArray()
+    // Make sure the SNI we want is what is sent, even when it is not a plain hostname.
+    try {
+        val p = s.sslParameters
+        if (!sni.matches(Regex("[0-9.:]+"))) p.serverNames = listOf(javax.net.ssl.SNIHostName(sni))
+        s.sslParameters = p
+    } catch (_: Throwable) {}
     s.startHandshake()
-    if (!HttpsURLConnection.getDefaultHostnameVerifier().verify(sni, s.session))
+    if (verify && !HttpsURLConnection.getDefaultHostnameVerifier().verify(sni, s.session))
         throw SSLPeerUnverifiedException("Certificate does not match server name '$sni'")
     return s
 }
@@ -47,12 +61,13 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, priva
         s.soTimeout = timeout
         s.tcpNoDelay = true
         log("Proxy: TCP connected ${addr.hostAddress}:$tp (${c.from})")
-        if (c.from == "tls" || (c.from == "ws" && c.sni.isNotBlank())) {
+        if (c.from == "tls" || c.from == "sni" || (c.from == "ws" && c.sni.isNotBlank())) {
             val name = c.sni.ifBlank { th }
             if (name.matches(Regex("[0-9.:]+"))) log("TLS: warning - SNI is an IP address; servers usually need a domain name here")
             log("TLS: handshake, SNI=$name")
-            val ssl = tlsWrap(s, name, tp)
-            log("TLS: ${ssl.session.protocol} ${ssl.session.cipherSuite}, certificate verified")
+            if (!c.verify) log("TLS: warning - certificate verification is OFF")
+            val ssl = tlsWrap(s, name, tp, c.verify)
+            log("TLS: ${ssl.session.protocol} ${ssl.session.cipherSuite}" + if (c.verify) ", certificate verified" else "")
             s = ssl
         }
         val i = s.getInputStream()
@@ -67,7 +82,7 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, priva
                 expectOk(readHead(i))
             }
             "socks5" -> socks5(i, o, host, port)
-            "tls" -> if (custom) { send(o, payloadReq(host, port)); expectOk(readHead(i)) }
+            "tls", "sni" -> if (custom) { send(o, payloadReq(host, port)); expectOk(readHead(i)) }
             "ws" -> {
                 val key = Base64.encodeToString(ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }, Base64.NO_WRAP)
                 send(o, if (custom) payloadReq(host, port)
