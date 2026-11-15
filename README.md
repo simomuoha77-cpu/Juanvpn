@@ -1,30 +1,35 @@
-# JUAN VPN — Android project
+# JUAN VPN Android
 
-Professional Android client foundation for authorized SSH/proxy connections. Includes a branded native UI, SSH credential fields, encrypted local profile storage, JSON import/export, Android foreground notification, and GitHub Actions APK build.
+JUAN VPN is an Android SSH/proxy client foundation with a branded four-tab interface, encrypted profile storage, JSON import/export, notifications, and persistent connection logs.
 
-## Build APK
+## Build
 
-GitHub Actions builds a debug APK on every push/PR and on manual dispatch. Open **Actions → JUAN VPN Android Build** and download the `juan-vpn-debug-apk` artifact.
+GitHub Actions runs `gradle assembleDebug` and uploads `juan-vpn-debug-apk`.
 
-Local build requires JDK 17 and Android SDK 35:
+## Included in this source package
 
-```bash
-gradle assembleDebug
-```
+- Home, Logs, Tools, and Help screens
+- SSH profile fields (password or private key)
+- Strict SSH host-key verification using a supplied verified `known_hosts` entry
+- HTTP/SOCKS proxy profile fields and TLS/SNI configuration fields
+- Encrypted Android profile preferences
+- JSON profile import/export
+- Foreground notification and session state reporting
+- Persistent connection event log
+- GitHub Actions debug APK workflow
 
-## Current implementation status — read before deployment
+## Important implementation status
 
-- Implemented: Android project, profile editor, encrypted preferences, JSON import/export, notification-backed service lifecycle, SSH authentication using JSch, and an SSH `direct-tcpip` SOCKS5 listener bound to `127.0.0.1`.
-- Not implemented: full-device `VpnService` TUN packet capture and TUN-to-SOCKS5 forwarding. Android's VPN consent prompt and foreground service do **not** by themselves route device traffic. The UI currently starts the SSH-backed local SOCKS5 endpoint, not a complete device-wide VPN.
-- HTTP proxy/TLS fields are currently profile data/UI only; an HTTP CONNECT/TLS transport engine is not yet wired into the SSH handshake.
-- The SSH implementation requires the server's verified OpenSSH known_hosts line in the **VERIFIED SSH KNOWN_HOSTS LINE** field; strict host-key checking is enabled. Obtain and verify the fingerprint through your server provider or an independent trusted channel. Never blindly trust an unverified key.
+This source package is **not yet a complete device-wide VPN**.
 
-Do not advertise this build as a complete full-device VPN until the packet-forwarding engine and end-to-end tests are integrated. Do not use third-party servers without permission.
+The current SSH component starts a local SOCKS5 listener and uses SSH `direct-tcpip` channels. The Android VPN consent prompt and foreground service do not route phone traffic by themselves. The native TUN-to-SOCKS5 bridge (for example, `hev-socks5-tunnel`) must be built for Android ABIs, packaged, started with the TUN file descriptor, and tested before claiming full-device routing.
 
-## Permissions
+The HTTP proxy/TLS/SNI fields are saved as profile data; an HTTP CONNECT / TLS proxy chaining transport is not yet implemented. The current connection mode selection is not yet a full protocol selector.
 
-`INTERNET`, `ACCESS_NETWORK_STATE`, foreground service, special-use foreground service, notification permission, and the system VPN service declaration are included. Location permission is deliberately not requested: a VPN client does not need device location merely to establish an SSH tunnel. Notification permission is requested by Android at runtime on Android 13+ when the app is updated to include the runtime prompt flow.
+## SSH host key
 
-## Import/export
+Strict host-key checking is enabled. Obtain the host key and fingerprint from your server provider using a trusted channel. Do not blindly trust an unverified key. Paste the verified OpenSSH `known_hosts` line into the profile.
 
-Profiles use JSON format `juanvpn-profile-v1`. Exported profiles contain credentials; keep exported files private and delete them when no longer needed.
+## Security
+
+Only use servers you own or are authorized to use. Exported profile JSON may contain credentials; store it securely and delete it when no longer needed. Location permission is not requested because it is not required for SSH tunnel operation.
