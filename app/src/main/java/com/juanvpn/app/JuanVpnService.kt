@@ -53,7 +53,10 @@ object JuanBus {
 object TunEngine {
     private const val CLS = "hev.htproxy.TProxyService"
     const val DNS = "10.10.10.3"
-    fun start(ctx: Context, fd: Int, socksPort: Int) {
+    @Volatile private var started = false
+
+    @Synchronized fun start(ctx: Context, fd: Int, socksPort: Int) {
+        if (started) throw IllegalStateException("TUN engine is already running")
         val cfg = File(ctx.cacheDir, "hev.yml")
         cfg.writeText(
             "tunnel:\n  mtu: 1500\n  ipv4: 10.10.10.2\nsocks5:\n  port: $socksPort\n  address: 127.0.0.1\n" +
@@ -63,9 +66,19 @@ object TunEngine {
         val k = try { Class.forName(CLS) } catch (_: ClassNotFoundException) {
             throw IllegalStateException("TUN engine not bundled: add hev-socks5-tunnel (hev.htproxy.TProxyService + libhev-socks5-tunnel.so)")
         }
-        k.getMethod("TProxyStartService", String::class.java, Int::class.javaPrimitiveType).invoke(null, cfg.absolutePath, fd)
+        try {
+            k.getMethod("TProxyStartService", String::class.java, Int::class.javaPrimitiveType).invoke(null, cfg.absolutePath, fd)
+            started = true
+        } catch (e: java.lang.reflect.InvocationTargetException) {
+            throw IllegalStateException("Native TUN engine failed to start: ${e.targetException?.message ?: e.message}", e.targetException ?: e)
+        }
     }
-    fun stop() { try { Class.forName(CLS).getMethod("TProxyStopService").invoke(null) } catch (_: Throwable) {} }
+    @Synchronized fun stop() {
+        if (!started) return
+        try { Class.forName(CLS).getMethod("TProxyStopService").invoke(null) }
+        catch (e: Throwable) { JuanBus.log("TUN stop warning: ${e.cause?.message ?: e.message}") }
+        finally { started = false }
+    }
 }
 
 class JuanVpnService : VpnService() {
@@ -82,9 +95,10 @@ class JuanVpnService : VpnService() {
     private val sched = Executors.newSingleThreadScheduledExecutor()
     private var statsJob: ScheduledFuture<*>? = null
     private var t0 = 0L
+    @Volatile private var stopping = false
 
     override fun onStartCommand(i: Intent?, f: Int, id: Int): Int {
-        if (i?.action == STOP) { teardown(); post("DISCONNECTED", "", ""); stopSelf(); return START_NOT_STICKY }
+        if (i?.action == STOP) { stopping = true; teardown(); post("DISCONNECTED", "", ""); stopSelf(); return START_NOT_STICKY }
         val json = i?.getStringExtra(CFG) ?: run { stopSelf(); return START_NOT_STICKY }
         if (JuanBus.state == "CONNECTING" || JuanBus.state == "CONNECTED") {
             JuanBus.log("Ignored duplicate connection start request")
@@ -93,20 +107,26 @@ class JuanVpnService : VpnService() {
         channel()
         ServiceCompat.startForeground(this, NID, notif("Connecting…"),
             if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)
-        teardown()
+        stopping = false
         worker = Thread { connectFlow(json) }.apply { name = "JuanConnect"; start() }
         return START_NOT_STICKY
     }
 
     private fun connectFlow(json: String) {
         try {
+            JuanBus.log("Connection worker started")
             val c = JuanCfg.parse(json)
             c.validate()?.let { throw IllegalArgumentException(it) }
+            if (stopping || Thread.currentThread().isInterrupted) return
             post("CONNECTING", "Opening SSH tunnel", "")
-            val e = JuanSshEngine(c, JuanBus::log, trust()); e.start(); engine = e
+            val e = JuanSshEngine(c, JuanBus::log, trust())
+            engine = e
+            e.start()
+            if (stopping || Thread.currentThread().isInterrupted) { e.stop(); return }
             post("CONNECTING", "Starting TUN", "")
             val pfd = build(c) ?: throw IllegalStateException("VPN permission missing or revoked")
             tun = pfd
+            if (stopping || Thread.currentThread().isInterrupted) return
             TunEngine.start(this, pfd.fd, e.socksPort)
             JuanBus.log("TUN: packet engine started")
             post("CONNECTING", "Checking tunnel", "")
@@ -115,6 +135,7 @@ class JuanVpnService : VpnService() {
             post("CONNECTED", "${c.user}@${c.sshHost}", "")
             startStats(e)
         } catch (ex: Throwable) {
+            if (stopping || Thread.currentThread().isInterrupted) return
             val msg = JuanSshEngine.friendly(ex.cause ?: ex)
             JuanBus.log("Error: $msg")
             teardown(); post("ERROR", "", msg); stopSelf()
@@ -157,7 +178,12 @@ class JuanVpnService : VpnService() {
             JuanBus.onStats?.invoke(JSONObject().put("up", u).put("down", d).put("upBps", u - lu).put("downBps", d - ld)
                 .put("uptime", (System.currentTimeMillis() - t0) / 1000))
             lu = u; ld = d
-            if (!e.alive()) { JuanBus.log("Tunnel: SSH session lost"); teardown(); post("ERROR", "", "SSH session dropped"); stopSelf() }
+            if (!e.alive() && !stopping) {
+                JuanBus.log("Tunnel: SSH session lost")
+                teardown()
+                post("ERROR", "", "SSH session dropped")
+                stopSelf()
+            }
         }, 1, 1, TimeUnit.SECONDS)
     }
 
@@ -168,12 +194,16 @@ class JuanVpnService : VpnService() {
         getSystemService(NotificationManager::class.java).notify(NID, notif(if (e.isNotEmpty()) e else s.lowercase().replaceFirstChar { it.uppercase() } + if (d.isNotEmpty()) " · $d" else ""))
     }
 
-    private fun teardown() {
-        statsJob?.cancel(false); statsJob = null
+    @Synchronized private fun teardown() {
+        stopping = true
+        statsJob?.cancel(true); statsJob = null
+        // Stop the native engine only after a successful native start.
         TunEngine.stop()
         try { tun?.close() } catch (_: Exception) {}; tun = null
-        engine?.stop(); engine = null
+        try { engine?.stop() } catch (e: Exception) { JuanBus.log("SSH cleanup warning: ${e.message}") }
+        engine = null
         worker?.takeIf { it !== Thread.currentThread() }?.interrupt()
+        worker = null
     }
 
     override fun onRevoke() { teardown(); post("DISCONNECTED", "", "VPN permission revoked"); stopSelf() }
