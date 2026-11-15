@@ -60,6 +60,6 @@ These source changes address lifecycle and permission-flow defects visible in th
 - **Log colours:** errors red, warnings amber, successful steps and *Connected* green.
 
 
-## VMess 2.2.2 correction
+## VMess 2.2.3 response-header nonce fix
 
-Restores the VMess AEAD request security byte to `0x03` (AES-128-GCM), which matches the AES-GCM body cipher. The previous experimental patches incorrectly inserted an extra padding byte or changed the security value to `0x02`. This release restores the original protocol header layout and increments Android versionCode to 5 / versionName to 2.2.2.
+Fixes the VMess AEAD response-header KDF inputs: response-header keys are derived from the response body key, while response-header IVs are derived from the response body IV, matching Xray-core. Adds distinct response-header authentication errors and increments Android versionCode to 6 / versionName to 2.2.3.

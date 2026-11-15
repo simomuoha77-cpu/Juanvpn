@@ -413,16 +413,36 @@ private class VmessIn(private val i: InputStream, bodyKey: ByteArray, bodyIv: By
     }
 
     private fun head() {
+        // Xray derives response-header encryption keys from responseBodyKey,
+        // but derives the corresponding nonces from responseBodyIV. These are
+        // separate KDF inputs; using rKey for both makes every valid response
+        // header fail AES-GCM authentication.
         val lk = Vm.kdf(rKey, "AEAD Resp Header Len Key").copyOf(16)
-        val ln = Vm.kdf(rKey, "AEAD Resp Header Len IV").copyOf(12)
-        val e = ByteArray(18); fully(e)
-        val l = Vm.gcm(false, lk, ln, null, e)
-        val n = ((l[0].toInt() and 0xFF) shl 8) or (l[1].toInt() and 0xFF)
+        val ln = Vm.kdf(rIv, "AEAD Resp Header Len IV").copyOf(12)
+        val encryptedLength = ByteArray(18)
+        fully(encryptedLength)
+        val plainLength = try {
+            Vm.gcm(false, lk, ln, null, encryptedLength)
+        } catch (e: IOException) {
+            throw IOException("VMess: response header length authentication failed", e)
+        }
+        if (plainLength.size != 2) throw IOException("VMess: invalid response header length")
+        val n = ((plainLength[0].toInt() and 0xFF) shl 8) or (plainLength[1].toInt() and 0xFF)
+        if (n > 4096) throw IOException("VMess: response header is too large ($n bytes)")
+
         val pk = Vm.kdf(rKey, "AEAD Resp Header Key").copyOf(16)
-        val pn = Vm.kdf(rKey, "AEAD Resp Header IV").copyOf(12)
-        val eh = ByteArray(n + 16); fully(eh)
-        val h = Vm.gcm(false, pk, pn, null, eh)
-        if (h.isEmpty() || (h[0].toInt() and 0xFF) != respV) throw IOException("VMess: bad response header")
+        val pn = Vm.kdf(rIv, "AEAD Resp Header IV").copyOf(12)
+        val encryptedHeader = ByteArray(n + 16)
+        fully(encryptedHeader)
+        val header = try {
+            Vm.gcm(false, pk, pn, null, encryptedHeader)
+        } catch (e: IOException) {
+            throw IOException("VMess: response header payload authentication failed", e)
+        }
+        if (header.isEmpty() || (header[0].toInt() and 0xFF) != respV) {
+            throw IOException("VMess: response header authentication byte mismatch")
+        }
+        if (header.size < 4) throw IOException("VMess: truncated response header")
     }
 
     private fun fill(): Boolean {
