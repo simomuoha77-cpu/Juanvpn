@@ -73,7 +73,7 @@ details{border-top:1px solid var(--ln);padding:12px 16px}details:first-of-type{b
 <header><div class="bar"><button class="ib" id="lead" aria-label="Menu"></button><h1 id="ttl">JUAN VPN</h1><button class="ib" id="gear" aria-label="Settings"></button></div><nav class="tabs" id="tabs"></nav></header>
 <main id="v"></main><input type="file" id="fi" accept=".hj,.HJ,.json,application/json" hidden><div id="md"><div class="sheet" id="sh"></div></div><div id="toast"></div>
 <script>
-const VER='2.3.1',$=s=>document.querySelector(s);
+const VER='2.3.2',$=s=>document.querySelector(s);
 const I={menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',back:'<path d="M15 5l-7 7 7 7"/>',gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',ch:'<path d="M9 5l7 7-7 7"/>',ed:'<path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/>'};
 const ic=(n,c='')=>`<svg class="${c}" viewBox="0 0 24 24">${I[n]}</svg>`;
 const SECRET=['pass','key','keyPass','pPass','xSecret'];
@@ -165,7 +165,8 @@ ${card('Configuration files',`<div class="btns" style="flex-direction:column">
 <button class="btn pri" data-act="saveP">Save current profile</button>
 <button class="btn" data-act="importHJ">Import config (.HJ)</button>
 <button class="btn" data-act="exporter">Export / create config (.HJ)</button>
-</div><div class="note">Save profiles on this device, import an existing JUAN .HJ file, or open the exporter to create a password-locked .HJ file.</div>`)}
+<button class="btn bad" data-act="resetPrompt">Reset current config</button>
+</div><div class="note">Save profiles on this device, import an existing JUAN .HJ file, or create a password-locked .HJ file. Reset clears only the active setup; saved profiles and HJ export settings stay saved.</div>`)}
 ${card('',go('tunnel',[sum(),'Tunnel type and connect-from']))}
 ${S._hjLocked?'':S.tunnel!=='ssh'?'':S.custom&&PAY.includes(S.from)?card('Payload',`<div class="fld" style="border:0"><textarea data-k="payload" spellcheck="false" autocapitalize="off" style="min-height:110px">${esc(S.payload)}</textarea></div>`+edRows()):(edRows()?card('',edRows()):'')}
 ${S.tunnel==='ssh'?card('',go('ssh',['SSH server',S._hjLocked?'Locked configuration':(S.user&&S.sshHost)?S.user+'@'+S.sshHost+':'+S.sshPort:'Not set'])):card('',go('xserver',[XN[S.tunnel]+' server',xdesc()]))}
@@ -299,6 +300,15 @@ const ACT={
 impLink(){try{const r=parseLink(S.link);Object.assign(S,r.o);if(r.name)S.name=r.name;S.link='';save();if(B()&&B().saveSecrets)B().saveSecrets(JSON.stringify(Object.fromEntries(SECRET.map(k=>[k,S[k]||'']))));log('Link imported: '+S.tunnel+' '+S.xHost+':'+S.xPort);toast('Link imported');render()}catch(x){toast(x.message);log('Import failed: '+x.message)}},
 forget(){S.known='';save();B()&&B().forgetHostKey&&B().forgetHostKey(S.sshHost,String(S.sshPort));toast('Trusted key cleared');render()},
 mdclose(){unmodal();render()},hkyes(){B()&&B().hostKeyAnswer&&B().hostKeyAnswer(true);unmodal()},hkno(){B()&&B().hostKeyAnswer&&B().hostKeyAnswer(false);unmodal()},
+resetPrompt(){
+modal(`<h2>Reset current configuration?</h2><p>This will disconnect JUAN VPN if it is running and clear the current server, protocol, payload, proxy, SNI and saved credentials from this device.</p><p>Your saved profiles, imported files and HJ exporter preferences will not be deleted.</p><div class="btns"><button class="btn" data-act="mdclose">Cancel</button><button class="btn bad" data-act="resetConfig">Reset configuration</button></div>`)
+},
+resetConfig(){
+try{if(B()&&B().disconnect)B().disconnect();if(B()&&B().clearSecrets)B().clearSecrets();}catch(e){log('Reset cleanup warning: '+e.message)}
+S={...D,apps:[]};try{localStorage.removeItem('juan.p')}catch(e){}save();
+ST={state:'DISCONNECTED',detail:'Configuration reset',error:''};STAT={};pendingHJText='';
+unmodal();log('Current configuration reset; saved profiles were kept.');toast('Reset complete — choose another protocol or import a config');nav('home');
+},
 start(){const e=validate();if(e.length){ST.error=e[0];log('Validation failed: '+e[0]);render();return}
 ST={state:'CONNECTING',detail:'Starting…',error:''};log('Connect requested for '+S.name);render();
 if(B()&&B().connect)B().connect(JSON.stringify(S));else{ST={state:'ERROR',detail:'',error:'Native tunnel engine is not attached to this UI.'};log('No native bridge: cannot connect');render()}},

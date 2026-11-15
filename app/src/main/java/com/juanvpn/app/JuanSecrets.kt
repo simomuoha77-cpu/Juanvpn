@@ -12,4 +12,5 @@ object JuanSecrets {
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM)
     fun save(c: Context, json: String) { try { prefs(c).edit().putString("s", json).apply() } catch (_: Exception) {} }
     fun load(c: Context): String = try { prefs(c).getString("s", "{}") ?: "{}" } catch (_: Exception) { "{}" }
+    fun clear(c: Context) { try { prefs(c).edit().remove("s").apply() } catch (_: Exception) {} }
 }
