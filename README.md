@@ -135,3 +135,8 @@ SSH profiles with several proxies, SNI names or payloads now rotate automaticall
 ## Version 2.9.1
 
 - **Public IP on the dashboard.** Connected: the exit IP is read through the tunnel (local SOCKS5 forwarder, HTTPS) and shown as *Public IP (VPN)*; the log prints `Public IP: x.x.x.x` and, after a reconnect, whether it changed. Disconnected: the tile shows *Your IP* (the phone's own address). Tap the tile to refresh.
+
+## Version 2.9.2
+
+- **Log header like HTTP Custom.** When the app opens the log starts with `JUAN VPN v...`, `running on <maker> (<model>)`, `Android <ver> API-<sdk> (<abi>)`, the network line (`Airtel (KE) / LTE (4G)`, `Wi-Fi`, ...) and `Local IP 10.x.x.x`. The network and Local IP lines are written again on every connect and after the network returns (airplane mode off), so you can see the local IP change. IPs in the log are green and underlined.
+- The network type (LTE / 4G, 5G, 3G) needs the Phone permission (READ_PHONE_STATE). It is asked once; if you deny it the line says `Mobile data` instead.

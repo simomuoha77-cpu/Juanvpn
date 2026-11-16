@@ -31,6 +31,7 @@ object JuanBus {
     @Volatile var state = "DISCONNECTED"; @Volatile var detail = ""; @Volatile var error = ""
     @Volatile var publicIp = ""          // IP seen through the tunnel while connected
     @Volatile var socksPort = 0          // local forwarder of the running tunnel
+    @Volatile var headerLogged = false
     val logs = java.util.Collections.synchronizedList(ArrayList<String>())
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -136,6 +137,7 @@ class JuanVpnService : VpnService() {
             if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)
         stopping = false
         lastJson = json
+        JuanDevice.networkLines(this).forEach { JuanBus.log(it) }
         // A new worker first waits for a cancelled one to finish, so two workers never run side by side.
         val prev = lastWorker
         val t = Thread {
@@ -276,6 +278,7 @@ class JuanVpnService : VpnService() {
                 post("CONNECTING", "Waiting for network", "")
                 if (!awaitNetwork(10 * 60_000L)) break
                 JuanBus.log("Network: ready, reconnecting")
+                JuanDevice.networkLines(this).forEach { JuanBus.log(it) }
                 Thread.sleep(2500)                 // the radio needs a moment after airplane mode
                 post("CONNECTING", "Reconnecting", "")
             }

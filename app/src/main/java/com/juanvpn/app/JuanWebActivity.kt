@@ -41,6 +41,14 @@ class JuanWebActivity : Activity() {
         JuanBus.init(applicationContext)
         JuanCrash.install(this)
         JuanCrash.report(this)?.let { JuanBus.log(it) }
+        if (!JuanBus.headerLogged) { JuanBus.headerLogged = true; JuanDevice.header(this).forEach { JuanBus.log(it) } }
+        // The network type line (LTE / 4G ...) needs the Phone permission; asked once, optional.
+        val prefs = getSharedPreferences("juan_prefs", MODE_PRIVATE)
+        if (android.os.Build.VERSION.SDK_INT >= 23 && !prefs.getBoolean("askedPhone", false) &&
+            checkSelfPermission(android.Manifest.permission.READ_PHONE_STATE) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            prefs.edit().putBoolean("askedPhone", true).apply()
+            requestPermissions(arrayOf(android.Manifest.permission.READ_PHONE_STATE), 77)
+        }
         val lastLine = synchronized(JuanBus.logs) { JuanBus.logs.lastOrNull().orEmpty() }
         if (lastLine.contains("TUN") || lastLine.contains("Checking tunnel"))
             Thread { JuanBus.log("Native log from the last run:\n" + JuanCrash.nativeTail()) }.start()
