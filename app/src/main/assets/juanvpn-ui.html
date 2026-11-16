@@ -361,8 +361,9 @@ modal(`<h2>Save to cloud</h2>${r('normal','Normal','Available until the server r
 function copyText(t,msg){if(B()&&B().copyText){B().copyText(t);toast(msg||'Copied')}else if(navigator.clipboard?.writeText)navigator.clipboard.writeText(t).then(()=>toast(msg||'Copied'),()=>toast('Copy failed'));else toast('Copy failed')}
 function copyField(id){copyText(document.getElementById(id).value,'Copied')}
 function cloudResultModal(r){const f=(ic,id,v)=>`<div class="cf"><input id="${id}" readonly value="${esc(v)}" aria-label="${ic}"><button onclick="copyField('${id}')">⧉</button></div>`;
-window._cloudAll=`${r.key}\n\n${r.emoji}`;
-modal(`<h2>Cloud Config Key</h2><div class="h" style="margin:0 0 4px">Key</div>${f('key','cfKey',r.key)}<div class="h" style="margin:0 0 4px">Emoji key</div>${f('emoji','cfEmoji',r.emoji)}<div class="btns"><button class="btn" data-act="mdclose">OK</button><button class="btn" onclick="B().shareText&&B().shareText(window._cloudAll)">Share</button><button class="btn pri" onclick="copyText(window._cloudAll,'Copied')">Copy</button></div>`)}
+const uri=String(r.uri||`${cloudServer()}/${encodeURIComponent(r.key)}`);
+window._cloudAll=uri;
+modal(`<h2>Cloud Config Key</h2><div class="h" style="margin:0 0 4px">Key</div>${f('key','cfKey',r.key)}<div class="h" style="margin:0 0 4px">Emoji key</div>${f('emoji','cfEmoji',r.emoji)}<div class="h" style="margin:0 0 4px">Share URI</div>${f('share URI','cfUri',uri)}<div class="btns"><button class="btn" data-act="mdclose">OK</button><button class="btn" onclick="B().shareText&&B().shareText(window._cloudAll)">Share</button><button class="btn pri" onclick="copyText(window._cloudAll,'Share URI copied')">Copy URI</button></div>`) }
 function cloudFetchStart(input){try{if(!B()||!B().cloudFetch)throw Error('Cloud import is available only in the Android app');if(!String(input).trim())throw Error('Paste a link, key or emoji key');const id='d'+Date.now();reqs[id]='dl';toast('Fetching config…');B().cloudFetch(id,cloudServer(),String(input))}catch(e){toast(e.message)}}
 JuanUI.cloudResult=(id,t)=>{const kind=reqs[id];delete reqs[id];let r;try{r=JSON.parse(t)}catch(e){toast('Cloud error');return}
 if(kind==='ping'){toast(r.ok?r.text:r.error);return}

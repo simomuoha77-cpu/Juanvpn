@@ -221,8 +221,11 @@ object JuanCloud {
             if (mode == "expiry") j.put("expires", expiresSec)
             val (code, body) = http("POST", "$server/api/put", j.toString())
             if (code in 200..299) {
+                val uri = "$server/$key"
                 return JSONObject()
-                    .put("key", key).put("emoji", emoji(key))
+                    .put("key", key)
+                    .put("emoji", emoji(key))
+                    .put("uri", uri)
                     .toString()
             }
             if (code != 409) throw IllegalStateException(errorOf(code, body))
