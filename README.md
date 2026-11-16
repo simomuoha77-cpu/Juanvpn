@@ -95,3 +95,9 @@ Fixes the VMess AEAD response-header KDF inputs: response-header keys are derive
 - **Save to cloud (code)** keeps Normal / Burn after import / Set Expiry Date, and now shows only the key and emoji key (no link).
 - **Locked configs cannot be exported or opened in the exporter.**
 - Set `DEFAULT_SERVER` in `JuanCloud.kt` to let users import keys without configuring a server.
+
+## Version 2.6.0
+
+- **No host-key prompt.** Server keys are accepted automatically; the fingerprint is only written to the log. Connecting never waits for confirmation.
+- **Any payload.** Placeholders: `[host] [port] [host_port] [ssh] [protocol] [method] [netData] [raw] [realData] [crlf] [cr] [lf] [lfcr] [ua] [sni] [proxy] [path] [auth] [rotate=a;b] [random=a;b] [split] [instant_split] [delay_split] [delay=ms]`. Text after a blank line is now sent (decoy request + upgrade), replies to earlier requests are skipped, 101 or a 2xx to the last request opens the tunnel, an SSH banner arriving first is also accepted, any HTTP version and LF-only replies work, and a missing closing blank line is added.
+- **Any proxy.** New *SOCKS4 proxy* (4a for names) and *Direct + Payload*. HTTP, SOCKS5, TLS and WebSocket stay. The proxy field accepts `http://user:pass@host:port`, `host:port` and `[ipv6]:port`. SOCKS5 sends IP literals as addresses.

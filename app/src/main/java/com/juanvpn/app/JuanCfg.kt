@@ -23,9 +23,10 @@ data class JuanCfg(
         sshPort !in 1..65535 -> "SSH port must be 1-65535"
         user.isBlank() -> "SSH username is required"
         pass.isEmpty() && key.isBlank() -> "Enter an SSH password or private key"
-        from in listOf("http", "socks5", "tls", "ws") && pHost.isBlank() -> "Proxy host is required"
-        from in listOf("http", "socks5", "tls", "ws") && pHost.isNotBlank() && pPort !in 1..65535 -> "Proxy port must be 1-65535"
-        from == "sni" && pHost.isNotBlank() && pPort !in 1..65535 -> "Front port must be 1-65535"
+        from in listOf("http", "socks5", "socks4", "tls", "ws") && pHost.isBlank() -> "Proxy host is required"
+        from in listOf("http", "socks5", "socks4", "tls", "ws") && pHost.isNotBlank() && pPort !in 1..65535 -> "Proxy port must be 1-65535"
+        (from == "sni" || from == "dpay") && pHost.isNotBlank() && pPort !in 1..65535 -> "Front port must be 1-65535"
+        from == "dpay" && payload.isBlank() -> "Payload is required for Direct + Payload"
         (from == "tls" || from == "sni") && sni.isBlank() -> "SNI is required for TLS"
         else -> null
     }
@@ -49,11 +50,26 @@ data class JuanCfg(
             fun s(k: String) = o.optString(k, "")
             fun i(k: String, d: Int) = s(k).toIntOrNull() ?: d
             val arr = o.optJSONArray("apps")
+            // Accept whatever people paste into the proxy field: http://user:pass@host:port, host:port, [v6]:port
+            var ph = s("pHost").trim().substringAfter("://").substringBefore('/')
+            var pp = i("pPort", 443); var pu = s("pUser"); var ppw = s("pPass")
+            if (ph.contains('@')) {
+                val cred = ph.substringBeforeLast('@'); ph = ph.substringAfterLast('@')
+                if (pu.isEmpty()) { pu = cred.substringBefore(':'); ppw = cred.substringAfter(':', "") }
+            }
+            if (ph.startsWith("[") && ph.contains(']')) {
+                val end = ph.indexOf(']')
+                ph.substring(end + 1).removePrefix(":").toIntOrNull()?.let { pp = it }
+                ph = ph.substring(1, end)
+            } else if (ph.count { it == ':' } == 1) {
+                ph.substringAfter(':').toIntOrNull()?.let { pp = it }
+                ph = ph.substringBefore(':')
+            }
             return JuanCfg(
                 s("name").ifBlank { "My server" }, s("from").ifBlank { "direct" }, o.optBoolean("custom", false),
                 s("sshHost").trim(), i("sshPort", 22), s("user").trim(), s("pass"), s("key"), s("keyPass"),
                 s("known"), i("keepalive", 30).coerceIn(5, 300),
-                s("pHost").trim(), i("pPort", 443), s("pUser"), s("pPass"), s("sni").trim(),
+                ph, pp, pu, ppw, s("sni").trim(),
                 s("payload"), s("wsPath"),
                 s("appMode").ifBlank { "off" }, (0 until (arr?.length() ?: 0)).map { arr!!.getString(it) },
                 o.optBoolean("verify", true),
