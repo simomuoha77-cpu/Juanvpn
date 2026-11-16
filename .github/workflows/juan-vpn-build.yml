@@ -69,6 +69,15 @@ jobs:
             cat app/build/outputs/mapping/release/missing_rules.txt 2>/dev/null || echo "(no missing_rules.txt)"
             exit 1
           }
+      - name: Verify APKs (signature, minSdk, size)
+        run: |
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          for A in app/build/outputs/apk/debug/*.apk app/build/outputs/apk/release/*.apk; do
+            echo "=== $A ($(du -h "$A" | cut -f1)) ==="
+            "$BT/apksigner" verify --verbose --print-certs "$A" | head -12
+            "$BT/aapt2" dump badging "$A" | grep -E "^package:|sdkVersion|targetSdkVersion|native-code" || true
+            unzip -tq "$A"
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: juan-vpn-debug-apk
