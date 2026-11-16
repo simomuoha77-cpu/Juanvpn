@@ -24,7 +24,17 @@ data class JuanCfg(
     val payloads: List<String> = emptyList(),      // rotating payloads (separated by a line of ---)
     val pinVariant: Int = -1                       // >= 0: smart rotation locked this copy to one combination (set by JuanRotation.pin)
 ) {
-    fun validate(): String? = if (tunnel != "ssh") validateX() else when {
+    /** Smart profile: the SSH side and the V2Ray / Shadowsocks side, each only when it is filled in correctly. */
+    fun sshVariant(): JuanCfg? = copy(tunnel = "ssh").takeIf { it.validateSsh() == null }
+    fun xVariant(): JuanCfg? = copy(tunnel = if (xProto == "ss") "ss" else "v2").takeIf { it.validateX() == null }
+
+    fun validate(): String? = when (tunnel) {
+        "smart" -> if (sshVariant() == null && xVariant() == null) "Add an SSH server or a V2Ray / Shadowsocks server" else null
+        "ssh" -> validateSsh()
+        else -> validateX()
+    }
+
+    private fun validateSsh(): String? = when {
         sshHost.isBlank() -> "SSH host is required"
         sshPort !in 1..65535 -> "SSH port must be 1-65535"
         user.isBlank() -> "SSH username is required"
@@ -94,8 +104,8 @@ data class JuanCfg(
                 s("appMode").ifBlank { "off" }, (0 until (arr?.length() ?: 0)).map { arr!!.getString(it) },
                 o.optBoolean("verify", true),
                 o.optBoolean("reconnect", true), i("delay", 5).coerceIn(1, 60), i("retries", 5).coerceIn(1, 10),
-                when (s("tunnel")) { "v2", "ss", "hy" -> s("tunnel"); else -> "ssh" },
-                when (s("tunnel")) { "ss" -> "ss"; "v2" -> s("xProto").let { if (it == "trojan" || it == "vmess") it else "vless" }; else -> "vless" },
+                when (s("tunnel")) { "v2", "ss", "hy", "smart" -> s("tunnel"); else -> "ssh" },
+                when (s("tunnel")) { "ss" -> "ss"; "v2" -> s("xProto").let { if (it == "trojan" || it == "vmess") it else "vless" }; "smart" -> s("xProto").let { if (it == "trojan" || it == "vmess" || it == "ss") it else "vless" }; else -> "vless" },
                 s("xHost").trim(), i("xPort", 443), s("xSecret").trim(),
                 s("xMethod").ifBlank { "aes-256-gcm" }.lowercase(),
                 if (s("xNet") == "ws") "ws" else "tcp",

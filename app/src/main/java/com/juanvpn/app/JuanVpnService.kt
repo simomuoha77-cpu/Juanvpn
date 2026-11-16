@@ -201,8 +201,8 @@ class JuanVpnService : VpnService() {
         JuanPolicy.check(this, c)?.let { throw IllegalStateException(it) }
         c.validate()?.let { throw IllegalArgumentException(it) }
         if (live()) {
-            if (announce) post("CONNECTING", when (c.tunnel) { "ssh" -> "Opening SSH tunnel"; "ss" -> "Opening Shadowsocks tunnel"; else -> "Opening ${c.xProto.uppercase()} tunnel" }, "")
-            if (c.tunnel == "ssh") smartConnect(c) else legacyConnect(c)
+            if (announce) post("CONNECTING", when (c.tunnel) { "smart" -> "Choosing the best route"; "ssh" -> "Opening SSH tunnel"; "ss" -> "Opening Shadowsocks tunnel"; else -> "Opening ${c.xProto.uppercase()} tunnel" }, "")
+            if (c.tunnel == "smart") smartAuto(c) else if (c.tunnel == "ssh") smartConnect(c) else legacyConnect(c)
         }
         null
     } catch (ex: Throwable) { ex }
@@ -337,6 +337,44 @@ class JuanVpnService : VpnService() {
     }
 
     /** Shadowsocks / V2Ray profiles: no proxy combinations to rotate, so the original retry loop is kept. */
+    @Volatile private var fastFail = false
+
+    /**
+     * Smart profile. Tries the SSH route (with all its proxy / SNI / payload combinations) and the V2Ray / Shadowsocks
+     * route. The one that worked last goes first. When a route fails the next one starts straight away, and if all
+     * of them fail the user gets one clear message.
+     */
+    private fun smartAuto(c: JuanCfg) {
+        val routes = listOfNotNull(c.sshVariant()?.let { "ssh" to it }, c.xVariant()?.let { "x" to it })
+        if (routes.isEmpty()) throw JuanFatalException("Add an SSH server or a V2Ray / Shadowsocks server")
+        val sp = getSharedPreferences("juan_smart", Context.MODE_PRIVATE)
+        val key = "last_" + (c.sshHost + "|" + c.xHost).hashCode()
+        val last = sp.getString(key, "") ?: ""
+        val order = routes.sortedBy { if (it.first == last) 0 else 1 }
+        var lastErr: Throwable? = null
+        try {
+            for ((i, r) in order.withIndex()) {
+                if (!live()) return
+                val more = i < order.size - 1
+                fastFail = more                                   // move on quickly while another route is left
+                JuanBus.log(if (i == 0) "Connecting..." else "Trying another route...")
+                val cfg = if (more) r.second.copy(retries = minOf(r.second.retries, 1)) else r.second
+                try {
+                    if (r.first == "ssh") smartConnect(cfg) else legacyConnect(cfg)
+                    if (JuanBus.state == "CONNECTED") { sp.edit().putString(key, r.first).apply(); return }
+                    if (!live()) return
+                } catch (ex: Throwable) {
+                    if (!live()) return
+                    abortAttempt()
+                    lastErr = ex
+                    JuanBus.log("Connection attempt failed.")
+                    JuanBus.log("Reason: " + JuanSshEngine.friendly(JuanRotation.rootCause(ex)))
+                }
+            }
+        } finally { fastFail = false }
+        throw JuanFatalException("Could not connect. Last error: " + (lastErr?.let { JuanSshEngine.friendly(JuanRotation.rootCause(it)) } ?: "no route worked"))
+    }
+
     private fun legacyConnect(c: JuanCfg) {
         val e = startWithRetry(c) ?: return
         if (!live()) { e.stop(); return }
@@ -369,7 +407,7 @@ class JuanVpnService : VpnService() {
                 // A login refused right after a disconnect is often the server still holding the old session (or rate
                 // limiting quick retries). Give it a moment and try the same login again before calling it wrong.
                 var authTry = 0
-                while (live() && authTry < 2 && JuanRotation.classify(ex) == JuanFail.SSH_AUTH) {
+                while (live() && !fastFail && authTry < 2 && JuanRotation.classify(ex) == JuanFail.SSH_AUTH) {
                     authTry++
                     JuanBus.log("Server is busy, retrying...")
                     post("CONNECTING", "Retrying", "")

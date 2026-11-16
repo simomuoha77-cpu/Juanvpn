@@ -42,7 +42,7 @@ object JuanPolicy {
     fun apply(ctx: Context, c: JuanCfg): JuanCfg {
         val p = c.policy
         blockTorrent = p?.optBoolean("disallowTorrent", false) == true
-        return if (p?.optBoolean("loginSshDeviceId", false) == true && c.tunnel == "ssh") c.copy(user = DeviceId.get(ctx)) else c
+        return if (p?.optBoolean("loginSshDeviceId", false) == true && (c.tunnel == "ssh" || c.tunnel == "smart")) c.copy(user = DeviceId.get(ctx)) else c
     }
 
     fun check(ctx: Context, c: JuanCfg): String? {
