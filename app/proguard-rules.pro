@@ -37,3 +37,11 @@
 -keep class org.bouncycastle.jce.provider.BouncyCastleProvider { *; }
 # Smart rotation: keep readable names in failure logs
 -keepnames class com.juanvpn.app.JuanFail
+
+# Tink (pulled in by androidx.security:security-crypto) mentions compile-time-only annotation classes
+-dontwarn javax.annotation.**
+-dontwarn javax.annotation.concurrent.**
+-dontwarn com.google.errorprone.annotations.**
+-dontwarn com.google.j2objc.annotations.**
+-dontwarn org.checkerframework.**
+-dontwarn com.google.crypto.tink.**
