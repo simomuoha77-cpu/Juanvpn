@@ -251,6 +251,8 @@ class JuanWebActivity : Activity() {
         @JavascriptInterface fun deviceId(): String = DeviceId.get(applicationContext)
         @JavascriptInterface fun simOperator(): String =
             (getSystemService(android.telephony.TelephonyManager::class.java)?.simOperator ?: "")
+        /** The phone's own address on the real network (not the VPN). Always visible, even for locked configs. */
+        @JavascriptInterface fun localIp(): String = JuanDevice.localIp(applicationContext) ?: ""
         /** Refreshes the Public IP tile: through the tunnel when connected, directly otherwise. */
         @JavascriptInterface fun refreshIp() { Thread {
             val port = JuanBus.socksPort
