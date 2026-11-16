@@ -177,8 +177,9 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, priva
         for (p in pays) for (v in 0 until JuanPayload.variantCount(p)) cands.add(p to v)
         val total = pxs.size * snis.size * cands.size
         val start = rotation.getAndIncrement()
-        val tries = minOf(total, 12)
-        val to = if (tries > 1) minOf(timeout, 10_000) else timeout
+        val tries = minOf(total, 30)
+        val to = if (tries > 1) minOf(timeout, 7_000) else timeout
+        if (total > 1) log("Rotation: $total combination(s) available, trying up to $tries this pass")
         var last: Exception? = null
         for (n in 0 until tries) {
             val idx = Math.floorMod(start + n, total)

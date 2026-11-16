@@ -113,10 +113,14 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
     companion object {
         fun transient(e: Throwable): Boolean {
             val m = ((e.message ?: "") + " " + (e.cause?.message ?: "")).lowercase()
-            if (m.contains("auth") || m.contains("hostkey") || m.contains("host key") || m.contains("algorithm")) return false
-            return Regex("proxy replied: http/\\d\\.\\d (5\\d\\d|429)").containsMatchIn(m) || m.contains("websocket closed") || m.contains("proxy closed") || m.contains("closed by foreign host") ||
-                m.contains("timed out") || m.contains("timeout") || m.contains("connection reset") || m.contains("eof") ||
-                m.contains("socket closed") || m.contains("broken pipe") || m.contains("connection closed")
+            val hardStop = m.contains("auth fail") || m.contains("auth cancel") || m.contains("userauth") ||
+                m.contains("hostkey") || m.contains("host key") || m.contains("algorithm negotiation") ||
+                m.contains("uuid") || m.contains("unsupported shadowsocks") || m.contains("requires tls")
+            if (hardStop) return false
+            // Everything else (proxy 4xx/5xx, SOCKS4/5 rejections, TLS/handshake mismatches, resets,
+            // timeouts, "no connection candidate") is worth retrying: the rotation index advances each
+            // call, so the next attempt tries a different proxy/SNI/payload automatically.
+            return true
         }
 
         fun friendly(e: Throwable): String {
