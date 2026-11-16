@@ -108,3 +108,8 @@ Fixes the VMess AEAD response-header KDF inputs: response-header keys are derive
 - **SNI rotation:** the SNI field takes many names.
 - **Payload rotation:** put several payloads and separate them with a line of `---`. The `[rotate=a;b;c]` and `[random=a;b;c]` tags still work inside one payload.
 - Every connection starts at the next proxy / SNI / payload. When one is rejected (403, 421, 5xx, TLS failure, timeout) the app falls through to the next combination, up to 12 tries, before reporting an error.
+
+## Version 2.7.1
+
+- `[rotate=a;b;c]` and `[random=a;b;c]` now work as real fallbacks: every option is its own candidate. If the server rejects one (403, 421, ...) the app tries the next option in the same connect instead of stopping. Options may contain tags, e.g. `[rotate=GET / HTTP/1.1[crlf]Host: a[crlf][crlf];CONNECT [host_port] HTTP/1.0[crlf][crlf]]`.
+- The log now shows the payload request line and Host header that was sent, so a rejected payload is easy to spot.

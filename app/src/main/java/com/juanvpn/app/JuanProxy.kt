@@ -58,8 +58,41 @@ object JuanPayload {
 
     class Part(val data: ByteArray, val pauseMs: Long)
 
-    fun build(c: JuanCfg, payload: String, sni: String, host: String, port: Int, rot: Int): List<Part> {
+    private class Choice(val start: Int, val end: Int, val random: Boolean, val options: List<String>)
+    private val choiceOpen = Regex("\\[(rotate|random)=", RegexOption.IGNORE_CASE)
+    private val randomOffset = rnd.nextInt(1000)
+
+    /** Finds every [rotate=a;b] / [random=a;b]. Bracket-aware, so options may contain tags like [crlf]. */
+    private fun choices(t: String): List<Choice> {
+        val out = ArrayList<Choice>()
+        var from = 0
+        while (true) {
+            val m = choiceOpen.find(t, from) ?: break
+            var depth = 1
+            var i = m.range.last + 1
+            while (i < t.length && depth > 0) { if (t[i] == '[') depth++ else if (t[i] == ']') depth--; i++ }
+            if (depth != 0) break
+            val arg = t.substring(m.range.last + 1, i - 1)
+            out.add(Choice(m.range.first, i, m.groupValues[1].equals("random", true), arg.split(';').filter { it.isNotEmpty() }))
+            from = i
+        }
+        return out
+    }
+
+    /** How many different payloads a rotate/random tag can produce (1 when there is none). */
+    fun variantCount(payload: String): Int = maxOf(1, choices(payload).maxOfOrNull { it.options.size } ?: 1)
+
+    private fun expandChoices(payload: String, rot: Int): String {
         var t = payload
+        for (ch in choices(payload).reversed()) {
+            val pick = if (ch.options.isEmpty()) "" else ch.options[Math.floorMod(if (ch.random) rot + randomOffset else rot, ch.options.size)]
+            t = t.substring(0, ch.start) + pick + t.substring(ch.end)
+        }
+        return t
+    }
+
+    fun build(c: JuanCfg, payload: String, sni: String, host: String, port: Int, rot: Int): List<Part> {
+        var t = expandChoices(payload, rot)
         // literal \r\n typed as text
         t = t.replace("\\r\\n", "[crlf]").replace("\\n", "[lf]").replace("\\r", "[cr]")
         val hasTags = Regex("\\[(crlf|cr|lf|lfcr)\\]", RegexOption.IGNORE_CASE).containsMatchIn(t)
@@ -139,19 +172,22 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, priva
         val pxs: List<ProxyEntry?> = if (c.from == "direct" || c.proxies.isEmpty()) listOf(null) else c.proxies
         val snis = c.snis.ifEmpty { listOf(c.sni) }
         val pays = c.payloads.ifEmpty { listOf(c.payload) }
-        val total = pxs.size * snis.size * pays.size
+        // every option of a [rotate=..]/[random=..] tag is its own candidate payload
+        val cands = ArrayList<Pair<String, Int>>()
+        for (p in pays) for (v in 0 until JuanPayload.variantCount(p)) cands.add(p to v)
+        val total = pxs.size * snis.size * cands.size
         val start = rotation.getAndIncrement()
         val tries = minOf(total, 12)
         val to = if (tries > 1) minOf(timeout, 10_000) else timeout
         var last: Exception? = null
         for (n in 0 until tries) {
             val idx = Math.floorMod(start + n, total)
-            val pi = idx % pays.size
-            val si = (idx / pays.size) % snis.size
-            val xi = idx / (pays.size * snis.size)
+            val pi = idx % cands.size
+            val si = (idx / cands.size) % snis.size
+            val xi = idx / (cands.size * snis.size)
             if (total > 1) log("Rotation: try ${n + 1}/$tries" + (if (pxs.size > 1) ", proxy ${xi + 1}/${pxs.size}" else "") +
-                (if (snis.size > 1) ", SNI ${snis[si]}" else "") + (if (pays.size > 1) ", payload ${pi + 1}/${pays.size}" else ""))
-            try { attempt(host, port, to, pxs[xi], snis[si], pays[pi], start + n); return }
+                (if (snis.size > 1) ", SNI ${snis[si]}" else "") + (if (cands.size > 1) ", payload ${pi + 1}/${cands.size}" else ""))
+            try { attempt(host, port, to, pxs[xi], snis[si], cands[pi].first, cands[pi].second); return }
             catch (e: InterruptedException) { throw e }
             catch (e: Exception) {
                 last = e
@@ -159,6 +195,7 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, priva
                 log("Rotation: failed (${e.message?.take(120)}), trying the next one")
             }
         }
+        rotation.addAndGet(tries - 1)        // next connect continues after the ones already tried
         throw last ?: IOException("No connection candidate")
     }
 
@@ -228,6 +265,10 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, priva
             o.write(p.data); o.flush()
             if (p.pauseMs > 0 && n < parts.size - 1) Thread.sleep(p.pauseMs)
         }
+        val text = String(parts[0].data, Charsets.ISO_8859_1)
+        val reqLine = text.lineSequence().firstOrNull { it.isNotBlank() }?.trim()?.take(80) ?: ""
+        val hostHdr = Regex("(?im)^host:[ \\t]*(.+)$").find(text)?.groupValues?.get(1)?.trim()?.take(80)
+        log("Payload: $reqLine" + (if (hostHdr != null) " | Host: $hostHdr" else ""))
         val expect = JuanPayload.expectedReplies(parts)
         log("Payload: sent ${parts.sumOf { it.data.size }} bytes in ${parts.size} part(s), $expect HTTP request(s)")
         if (expect == 0) { log("Payload: not an HTTP request, not waiting for a reply"); return }
