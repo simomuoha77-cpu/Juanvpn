@@ -248,6 +248,12 @@ class JuanWebActivity : Activity() {
             continueVpnPermissionFlow()
         }
         @JavascriptInterface fun saveSecrets(j: String) { JuanSecrets.save(applicationContext, j) }
+        /** HTTP ping on/off and its URL (Settings). Takes effect on the next ping. */
+        @JavascriptInterface fun setPing(on: Boolean, url: String) {
+            JuanBus.pingOn = on
+            JuanBus.pingUrl = url.trim().take(200).ifEmpty { JuanPing.DEFAULT_URL }
+            if (!on) JuanBus.pingMs = -2
+        }
         @JavascriptInterface fun deviceId(): String = DeviceId.get(applicationContext)
         @JavascriptInterface fun simOperator(): String =
             (getSystemService(android.telephony.TelephonyManager::class.java)?.simOperator ?: "")

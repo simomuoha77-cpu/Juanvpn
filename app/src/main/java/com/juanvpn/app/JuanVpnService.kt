@@ -32,12 +32,15 @@ object JuanBus {
     @Volatile var publicIp = ""          // IP seen through the tunnel while connected
     @Volatile var socksPort = 0          // local forwarder of the running tunnel
     @Volatile var headerLogged = false
+    @Volatile var pingOn = true          // HTTP ping switch (Settings)
+    @Volatile var pingUrl = "clients3.google.com/generate_204"
+    @Volatile var pingMs = -2            // -2 no data yet, -1 failed, otherwise round trip in ms
     val logs = java.util.Collections.synchronizedList(ArrayList<String>())
     fun init(context: Context) {
         appContext = context.applicationContext
         synchronized(logs) {
             if (logs.isEmpty()) {
-                logs.addAll(AppLog.read(context).lineSequence().filter { it.isNotBlank() }.toList().takeLast(400))
+                logs.addAll(AppLog.read(context).lineSequence().filter { it.isNotBlank() }.toList().takeLast(1500))
             }
         }
     }
@@ -50,14 +53,20 @@ object JuanBus {
     @Volatile var latch: java.util.concurrent.CountDownLatch? = null
     @Synchronized fun addSilent(m: String) {
         val l = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date()) + "  " + m
-        synchronized(logs) { logs.add(l); while (logs.size > 400) logs.removeAt(0) }
+        synchronized(logs) { logs.add(l); while (logs.size > 1500) logs.removeAt(0) }
         appContext?.let { AppLog.write(it, m) }
+    }
+    /** Frequent lines (ping): shown live and kept in memory, but not written to the saved session log. */
+    @Synchronized fun logLive(m: String) {
+        val l = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date()) + "  " + m
+        synchronized(logs) { logs.add(l); while (logs.size > 1500) logs.removeAt(0) }
+        onLog?.invoke(l)
     }
     @Synchronized fun log(m: String) {
         val l = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date()) + "  " + m
         synchronized(logs) {
             logs.add(l)
-            while (logs.size > 400) logs.removeAt(0)
+            while (logs.size > 1500) logs.removeAt(0)
         }
         appContext?.let { AppLog.write(it, m) }
         onLog?.invoke(l)
@@ -426,6 +435,34 @@ class JuanVpnService : VpnService() {
         JuanBus.socksPort = e.socksPort
         val port = e.socksPort
         Thread { fetchExitIp(port) }.also { it.name = "JuanIp" }.start()
+        startPing(port)
+    }
+
+    private val pingGen = java.util.concurrent.atomic.AtomicInteger()
+
+    /** Pings through the tunnel every few seconds while connected. The Settings switch can turn it on or off at any time. */
+    private fun startPing(port: Int) {
+        val gen = pingGen.incrementAndGet()
+        JuanBus.pingMs = -2
+        Thread {
+            try { Thread.sleep(2500) } catch (_: InterruptedException) { return@Thread }
+            while (gen == pingGen.get() && !stopping && JuanBus.state == "CONNECTED") {
+                if (JuanBus.pingOn) {
+                    try {
+                        val (code, ms) = JuanPing.viaSocks(port, JuanBus.pingUrl)
+                        if (gen != pingGen.get()) return@Thread
+                        JuanBus.pingMs = ms
+                        JuanBus.logLive("Ping: $code (${ms}ms)")
+                    } catch (_: InterruptedException) { return@Thread }
+                    catch (e: Exception) {
+                        if (gen != pingGen.get()) return@Thread
+                        JuanBus.pingMs = -1
+                        JuanBus.logLive("Ping: failed (" + (if (e is java.net.SocketTimeoutException) "timeout" else "no response") + ")")
+                    }
+                } else JuanBus.pingMs = -2
+                try { Thread.sleep(5000) } catch (_: InterruptedException) { return@Thread }
+            }
+        }.also { it.name = "JuanPing"; it.isDaemon = true }.start()
     }
 
     /** Undo whatever a failed attempt got as far as starting (TUN, packet engine, SSH session, half-open sockets). */
@@ -476,7 +513,7 @@ class JuanVpnService : VpnService() {
         var lu = 0L; var ld = 0L
         statsJob = sched.scheduleAtFixedRate({
             val u = e.up.get(); val d = e.down.get()
-            JuanBus.onStats?.invoke(JSONObject().put("up", u).put("down", d).put("upBps", u - lu).put("downBps", d - ld).put("ip", JuanBus.publicIp)
+            JuanBus.onStats?.invoke(JSONObject().put("up", u).put("down", d).put("upBps", u - lu).put("downBps", d - ld).put("ip", JuanBus.publicIp).put("ping", JuanBus.pingMs)
                 .put("uptime", (System.currentTimeMillis() - t0) / 1000))
             lu = u; ld = d
             if (!e.alive() && !stopping && !reconnecting.get()) {
@@ -489,7 +526,7 @@ class JuanVpnService : VpnService() {
 
     private fun post(s: String, d: String, e: String) {
         JuanBus.state = s; JuanBus.detail = d; JuanBus.error = e
-        if (s == "DISCONNECTED" || s == "ERROR") { JuanBus.publicIp = ""; JuanBus.socksPort = 0 }
+        if (s == "DISCONNECTED" || s == "ERROR") { JuanBus.publicIp = ""; JuanBus.socksPort = 0; JuanBus.pingMs = -2 }
         JuanBus.log("State: $s${if (d.isNotEmpty()) " ($d)" else ""}")
         JuanBus.onState?.invoke(s, d, e)
         val safeNotification = when (s) {
@@ -526,6 +563,7 @@ class JuanVpnService : VpnService() {
         stopping = true
         holdTun = false
         unregisterMonitor()
+        pingGen.incrementAndGet()
         statsJob?.cancel(true); statsJob = null
         // Stop the native engine only after a successful native start.
         TunEngine.stop()
