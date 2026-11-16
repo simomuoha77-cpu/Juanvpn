@@ -439,7 +439,7 @@ document.addEventListener('input',e=>{const el=e.target,d=el.dataset;
 if(d.hj){HJ[d.hj]=el.type==='checkbox'?el.checked:el.value;saveHJ();if(RR.includes(d.hj))render();return}
 if(d.app){const s=new Set(S.apps);el.checked?s.add(d.app):s.delete(d.app);S.apps=[...s];save();return}
 if(!d.k)return;S[d.k]=el.type==='checkbox'?el.checked:el.value;if(d.k!=='tHost')save();if(d.k==='ping'||d.k==='pingUrl')pushPing();
-if(SECRET.includes(d.k)&&B()&&B().saveSecrets)B().saveSecrets(JSON.stringify(Object.fromEntries(SECRET.map(k=>[k,S[k]||'']))));
+if(SECRET.includes(d.k)&&B()&&B().saveSecrets)B().saveSecrets(JSON.stringify({[d.k]:S[d.k]||''}));
 if(d.re){render()}else if(['sni','pHost','sshHost','payload'].includes(d.k)){const p=document.querySelector('.pv');if(p)p.innerHTML=preview()}});
 document.addEventListener('change',e=>{if(e.target.dataset.hj){HJ[e.target.dataset.hj]=e.target.type==='checkbox'?e.target.checked:e.target.value;saveHJ();if(RR.includes(e.target.dataset.hj))render();return}if(e.target.id!=='fi')return;const fl=e.target.files[0];if(!fl)return;fl.text().then(t=>{window.JuanUI.importFile(t);e.target.value=''})});
 render();

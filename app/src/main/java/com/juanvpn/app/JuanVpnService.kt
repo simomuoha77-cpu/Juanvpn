@@ -207,7 +207,11 @@ class JuanVpnService : VpnService() {
         null
     } catch (ex: Throwable) { ex }
 
+    @Volatile private var lastDown = 0L
+
     private fun connectFlow(json: String) {
+        val gap = 7000L - (System.currentTimeMillis() - lastDown)
+        if (gap in 1..7000) { JuanBus.log("Preparing connection..."); try { Thread.sleep(gap) } catch (_: InterruptedException) { return } }
         val ex = connectOnce(json, true) ?: return
         if (!live()) return
         val msg = if (ex is JuanFatalException) (ex.message ?: "Connection failed") else JuanSshEngine.friendly(JuanRotation.rootCause(ex))
@@ -360,8 +364,20 @@ class JuanVpnService : VpnService() {
                 val preferred = prevNo > 0 && n == 0
                 JuanBus.log(if (n == 0 && cycle == 1) "Connecting..." else "Retrying connection...")
                 logCombo(c, k)
-                val ex = tryCombo(c, k, preferred) ?: return          // null = connected
+                var ex = tryCombo(c, k, preferred) ?: return          // null = connected
                 if (!live()) return
+                // A login refused right after a disconnect is often the server still holding the old session (or rate
+                // limiting quick retries). Give it a moment and try the same login again before calling it wrong.
+                var authTry = 0
+                while (live() && authTry < 2 && JuanRotation.classify(ex) == JuanFail.SSH_AUTH) {
+                    authTry++
+                    JuanBus.log("Server is busy, retrying...")
+                    post("CONNECTING", "Retrying", "")
+                    try { Thread.sleep(3500L * authTry) } catch (_: InterruptedException) { return }
+                    if (!live()) return
+                    ex = tryCombo(c, k, preferred) ?: return
+                    if (!live()) return
+                }
                 val kind = JuanRotation.classify(ex)
                 val why = JuanSshEngine.friendly(JuanRotation.rootCause(ex))
                 JuanBus.log("Connection attempt failed.")
@@ -560,6 +576,7 @@ class JuanVpnService : VpnService() {
     }
 
     @Synchronized private fun teardown() {
+        lastDown = System.currentTimeMillis()
         stopping = true
         holdTun = false
         unregisterMonitor()
