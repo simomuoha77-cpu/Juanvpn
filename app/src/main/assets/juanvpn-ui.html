@@ -337,8 +337,9 @@ log('HJ config imported: '+(config.name||S.name||'JUAN VPN')+(uiLocked?' (locked
 function openHJImport(text){
 const box=JSON.parse(text);
 if(box.format!=='JUAN-HJ')throw Error('Unsupported HJ file format');
-if(box.locked){pendingHJText=text;modal(`<h2>Unlock JUAN HJ config</h2><p>This file is encrypted. Enter the password supplied by the config owner.</p><div class="fld" style="padding:8px 0"><label>Config password</label><input id="hjImportPassword" type="password" autocomplete="off"></div><div class="btns"><button class="btn" data-act="mdclose">Cancel</button><button class="btn pri" data-act="decryptHJ">Unlock & import</button></div>`)}
-else {const raw=B()&&B().openHJ?B().openHJ(text,''):box.config;if(String(raw).startsWith('ERROR:'))throw Error(String(raw).slice(6));applyHJConfig(typeof raw==='string'?JSON.parse(raw):raw,false)}
+const encrypted=!!box.ciphertext||!!box.salt||!!box.iv;
+if(box.locked||encrypted){pendingHJText=text;modal(`<h2>Unlock JUAN HJ config</h2><p>This file is encrypted. Enter the password supplied by the config owner.</p><div class="fld" style="padding:8px 0"><label>Config password</label><input id="hjImportPassword" type="password" autocomplete="off"></div><div class="btns"><button class="btn" data-act="mdclose">Cancel</button><button class="btn pri" data-act="decryptHJ">Unlock & import</button></div>`)}
+else {if(!box.config||typeof box.config!=='object')throw Error('HJ file has no configuration data');const raw=B()&&B().openHJ?B().openHJ(text,''):box.config;if(String(raw).startsWith('ERROR:'))throw Error(String(raw).slice(6));applyHJConfig(typeof raw==='string'?JSON.parse(raw):raw,false)}
 }
 /* ---- cloud export / import ---- */
 const reqs={};let pendingKind='saveHJ';

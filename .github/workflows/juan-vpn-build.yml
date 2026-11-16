@@ -62,8 +62,15 @@ jobs:
           ls -R jniLibs
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
+      - name: Build release APK (shrunk/obfuscated, self-signed)
+        run: gradle assembleRelease --stacktrace
       - uses: actions/upload-artifact@v4
         with:
           name: juan-vpn-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: juan-vpn-release-apk
+          path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
