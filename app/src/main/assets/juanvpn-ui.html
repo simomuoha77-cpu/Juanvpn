@@ -217,7 +217,7 @@ apps(){return card('Mode',`<div class="fld"><select data-k="appMode" data-re><op
 settings(){return card('Device',go('deviceid',['Device ID',deviceId()]))+card('Tunnel',go('tunnel',[XN[S.tunnel],sum()])+go('ssh',['SSH server','Host, auth, host key'])+go('xserver',['V2Ray / Shadowsocks server','Address, UUID or password, transport'])+go('dns',['DNS and routing','']))
 +card('Reliability',sw('Auto reconnect','reconnect','Reconnects after airplane mode, signal loss or a network switch.',1)+(S.reconnect?f('Delay (seconds)','delay',{m:'numeric'})+f('Max retries','retries',{m:'numeric',h:'Stops early on bad credentials or an unreachable server.'}):'')+sw('CPU wake lock','wake','Fewer drops with the screen off. Uses more battery.')+`<button class="row" data-act="batt"><div class="t"><b>Battery optimization</b><small>Exempt JUAN VPN so it stays alive</small></div>${ic('ch','ch')}</button>`)
 +card('Notifications',`<button class="row" data-act="notif"><div class="t"><b>Allow notifications</b><small>Needed for the Disconnect action on Android 13+</small></div>${ic('ch','ch')}</button>`)
-+card('Cloud server',`<div class="fld"><label>Your JUAN cloud server (https)</label><input id="cloudEndpoint" type="url" value="${esc(localStorage.getItem('juan.cloudEndpoint')||'')}" placeholder="https://juan-cloud.yourname.workers.dev" autocapitalize="off" spellcheck="false"><div class="h">Used by Save to cloud and by Import from cloud key. Deploy the server from the cloud-server folder (see its README).</div></div><div class="btns" style="padding:0 16px 14px;border:0"><button class="btn sm pri" data-act="saveCloudEndpoint">Save</button><button class="btn sm" data-act="pingCloud">Test server</button></div>`)},
+},
 
 deviceid(){const id=deviceId();const sim=B()&&B().simOperator?B().simOperator():'';
 return card('Your Device ID',`<div class="fld"><div style="font:600 20px/1.3 ui-monospace,Menlo,monospace;letter-spacing:.5px;word-break:break-all;color:var(--ac)">${esc(id)}</div><div class="h">Give this ID to the person who owns the config so they can lock it to your phone.</div></div><div class="btns"><button class="btn sm pri" data-act="copyId">Copy</button><button class="btn sm" data-act="shareId">Share</button></div>`)
@@ -345,7 +345,7 @@ else {if(!box.config||typeof box.config!=='object')throw Error('HJ file has no c
 }
 /* ---- cloud export / import ---- */
 const reqs={};let pendingKind='saveHJ';
-const cloudServer=()=>{const v=(localStorage.getItem('juan.cloudEndpoint')||'').trim();try{return v?new URL(v).origin:''}catch(e){return''}};
+const cloudServer=()=>'https://juanvpn.juanvpn.workers.dev';
 const yn=v=>v?'✔':'✖';
 function exportSummary(){
 let tt;if(S.tunnel==='ssh')tt=`${FROM[S.from]||S.from} → SSH${payOn()?' (Custom Payload)':''}`;else tt=`${XN[S.tunnel]} (${S.tunnel==='ss'?'Shadowsocks':S.xProto.toUpperCase()}${S.xNet==='ws'?' + WebSocket':''}${S.xTls?' + TLS':''})`;
@@ -404,8 +404,6 @@ importHJ(){unmodal();B()&&B().chooseImport?B().chooseImport():$('#fi').click()},
 saveHJ(){try{const locked=!!HJ.lockConfig;const text=makeHJText(locked);clearHJPassword();dl(hjName(),text,'application/octet-stream');toast('Choose a location to save your .HJ file')}catch(e){toast(e.message)}},
 saveBothHJ(){try{if(!HJ.lockConfig){HJ.lockConfig=true;saveHJ();render();toast('Set a password, then tap Save locked & unlocked again');return}const unlocked=makeHJText(false),locked=makeHJText(true);clearHJPassword();if(!B()||!B().exportFiles)throw Error('Save both is available only in the Android app');B().exportFiles(hjName('-unlocked'),unlocked,hjName('-locked'),locked);toast('Choose where to save each .HJ file')}catch(e){toast(e.message)}},
 shareHJ(){try{const text=makeHJText(!!HJ.lockConfig);clearHJPassword();if(!B()||!B().shareFile)throw Error('Sharing is available only in the Android app');B().shareFile(hjName(),text)}catch(e){toast(e.message)}},
-saveCloudEndpoint(){const v=($('#cloudEndpoint')?.value||'').trim();if(!v){localStorage.removeItem('juan.cloudEndpoint');toast('Cloud server cleared');return}try{const u=new URL(/^https?:\/\//i.test(v)?v:'https://'+v);if(u.protocol!=='https:')throw Error('Use an https address');localStorage.setItem('juan.cloudEndpoint',u.origin);$('#cloudEndpoint').value=u.origin;toast('Cloud server saved')}catch(e){toast(e.message||'Invalid address')}},
-pingCloud(){try{const srv=cloudServer();if(!srv)throw Error('Save your cloud server first');if(!B()||!B().cloudPing)throw Error('Available only in the Android app');const id='p'+Date.now();reqs[id]='ping';toast('Testing…');B().cloudPing(id,srv)}catch(e){toast(e.message)}},
 fab(){const f=document.querySelector('.fabwrap');if(f)f.classList.toggle('open')},
 xSave(){exportConfirm('saveHJ')},xCode(){exportConfirm('codeHJ')},xBoth(){exportConfirm('saveBothHJ')},xShare(){exportConfirm('shareHJ')},
 saveCloudHJ(){cloudOptions()},xCloud(){cloudOptions()},

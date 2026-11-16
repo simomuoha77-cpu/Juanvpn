@@ -35,6 +35,10 @@ export default {
     try {
       if (path === '/api/health') return J({ ok: true, service: 'juan-cloud' });
 
+      if ((path === '/api/put' || path.startsWith('/api/get/')) && !env.DB) {
+        throw new Error('D1 binding DB is missing');
+      }
+
       if (path === '/api/put' && req.method === 'POST') {
         const raw = await req.text();
         if (raw.length > MAX_BODY) return J({ error: 'Config is too large' }, 413);
@@ -91,10 +95,19 @@ export default {
 <p style="margin-top:18px">Or open JUAN VPN, go to <b>Servers &rarr; Import from cloud key</b> and paste this link or the key.${exists.mode === 'burn' ? '<br><b>One-time config:</b> it is deleted after the first import.' : ''}</p>`);
       }
 
-      if (path === '/') return page('JUAN VPN cloud', '<h3>JUAN VPN cloud server</h3><p>This server is running. Set its address in the app under Settings &rarr; Cloud server.</p>');
+      if (path === '/') return page('JUAN VPN cloud', '<h3>JUAN VPN cloud server</h3><p>This JUAN VPN cloud service is running. The official JUAN VPN app connects automatically.</p>');
       return J({ error: 'Not found' }, 404);
     } catch (e) {
-      return J({ error: 'Server error' }, 500);
+      // Log only operational error metadata. Never log request bodies, cloud keys,
+      // lookup tokens, encrypted configuration payloads, or credentials.
+      const incident = crypto.randomUUID();
+      console.error('JUAN cloud request failed', {
+        incident,
+        method: req.method,
+        path,
+        error: String(e && e.message ? e.message : e).slice(0, 240),
+      });
+      return J({ error: 'Cloud service error. Please try again later.', incident }, 500);
     }
   },
 };

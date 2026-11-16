@@ -14,7 +14,7 @@ Modes: **Normal** (kept 180 days by default), **Burn after import** (deleted ato
    replace everything with `worker.js`, Deploy.
 3. Worker -> **Settings -> Bindings -> Add -> D1 database**: variable name `DB`, database `juan-cloud`. Save/Deploy.
 4. Open `https://juan-cloud.<your-subdomain>.workers.dev/api/health`. You should see `{"ok":true,"service":"juan-cloud"}`.
-5. In JUAN VPN: **Settings -> Cloud server**, paste that address, **Save**, then **Test server**.
+5. The JUAN VPN Android app is configured to connect to `https://juanvpn.juanvpn.workers.dev` automatically. Users do not enter a Worker URL in Settings.
 
 ## Deploy with Wrangler (PC)
 
