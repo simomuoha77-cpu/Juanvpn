@@ -221,7 +221,7 @@ class JuanVpnService : VpnService() {
                 if (!live()) return
                 val kind = JuanRotation.classify(ex)
                 val why = JuanSshEngine.friendly(JuanRotation.rootCause(ex))
-                JuanBus.log(if (preferred) "Preferred combination failed." else "Combination ${k.no} failed.")
+                JuanBus.log(if (preferred) "Preferred combination failed." else "Combination ${n + 1}/$total failed.")
                 JuanBus.log("Reason: ${kind.label} - $why")
                 last = "${kind.label} - $why"
                 if (!JuanRotation.shouldRotate(ex)) throw ex            // bad login, host key, fatal setup: another combination cannot help
@@ -255,7 +255,7 @@ class JuanVpnService : VpnService() {
             if (!live()) throw JuanConnException(JuanFail.CANCELLED, "Cancelled by user")
             bringUp(pc, eng)                              // TUN + traffic check
             if (!live()) throw JuanConnException(JuanFail.CANCELLED, "Cancelled by user")
-            JuanBus.log(if (preferred) "Preferred combination successful." else "Combination ${k.no} successful.")
+            JuanBus.log(if (preferred) "Preferred combination successful." else "Combination successful (profile entry ${k.no}).")
             JuanRotation.savePreferred(this, c, k)
             JuanBus.log("Saved as preferred proxy.")
             finishConnected(pc, eng)

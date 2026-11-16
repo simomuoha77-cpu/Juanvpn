@@ -352,7 +352,7 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, priva
                 }
             }
             // The tunnel only counts as open once the SSH server itself has answered with its banner.
-            verifyBanner(i)
+            verifyBanner(i, s)
             s.soTimeout = 0
             sock = s; ins = i; outs = o
         } catch (e: Exception) {
@@ -397,7 +397,7 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, priva
             val head = try { readHead(i, ws) } catch (e: SocketTimeoutException) {
                 if (saw2xx) { log("Proxy: no further reply, continuing"); return }
                 log("$proto: NO REPLY (timeout)")
-                throw JuanConnException(JuanFail.PROXY_TIMEOUT, "Connection timed out: the proxy did not answer the handshake", e)
+                throw JuanConnException(JuanFail.PROXY_TIMEOUT, "The proxy did not answer the handshake in time", e)
             }
             if (head == null) { log("$proto: no HTTP reply, SSH banner arrived first"); return }
             val first = head.substringBefore("\n").trim()
@@ -443,8 +443,15 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, priva
         }
     }
 
-    /** Waits for the SSH server's own identification line and puts it back for JSch to read. */
-    private fun verifyBanner(i: PushbackInputStream) {
+    /**
+     * Looks for the SSH server's own identification line and puts it back for JSch to read.
+     * Waits only a short time: some WebSocket/HTTP bridges send the banner only after the client has sent its own,
+     * so silence is not failure yet - JSch then sends its identification and the SSH login decides. Wrong data
+     * instead of a banner, a closed connection, or (WebSocket mode) an HTTP 200 with no banner are failures.
+     */
+    private fun verifyBanner(i: PushbackInputStream, s: Socket) {
+        val old = s.soTimeout
+        s.soTimeout = if (old > 0) minOf(old, 4_000) else 4_000
         val buf = ByteArray(255)
         var n = 0
         try {
@@ -467,13 +474,16 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, priva
                 if (b == 10) break
             }
         } catch (e: SocketTimeoutException) {
+            if (n > 0) i.unread(buf, 0, n)
             if (wsWas2xx) {
                 log("WebSocket: REJECTED (HTTP 200 is not an upgrade, no SSH banner)")
                 throw JuanConnException(JuanFail.BAD_WS, "Invalid WebSocket handshake: the proxy answered 200 instead of 101 and no SSH banner followed", e)
             }
-            log("SSH: BANNER TIMEOUT")
-            throw JuanConnException(JuanFail.SSH_TIMEOUT, "Connection timed out: the SSH server sent no banner", e)
+            s.soTimeout = old
+            log("SSH: no banner yet, sending our identification first")
+            return
         }
+        s.soTimeout = old
         i.unread(buf, 0, n)
         log("SSH: BANNER RECEIVED (" + String(buf, 0, n, Charsets.ISO_8859_1).trim().filter { it.code in 32..126 }.take(60) + ")")
     }

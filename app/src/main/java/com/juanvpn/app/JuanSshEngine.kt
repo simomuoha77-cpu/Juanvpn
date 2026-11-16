@@ -55,7 +55,7 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
         proxy = px
         s.setProxy(px)
         log("SSH: connecting ${c.sshHost}:${c.sshPort}")
-        s.connect(20_000)
+        s.connect(15_000)
         s.hostKey?.let { log("SSH: server key ${it.type} ${it.getFingerPrint(jsch)}") }
         log("SSH: AUTHENTICATED")
         session = s
