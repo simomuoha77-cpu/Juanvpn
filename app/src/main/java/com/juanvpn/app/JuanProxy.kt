@@ -58,8 +58,8 @@ object JuanPayload {
 
     class Part(val data: ByteArray, val pauseMs: Long)
 
-    fun build(c: JuanCfg, host: String, port: Int, rot: Int): List<Part> {
-        var t = c.payload
+    fun build(c: JuanCfg, payload: String, sni: String, host: String, port: Int, rot: Int): List<Part> {
+        var t = payload
         // literal \r\n typed as text
         t = t.replace("\\r\\n", "[crlf]").replace("\\n", "[lf]").replace("\\r", "[cr]")
         val hasTags = Regex("\\[(crlf|cr|lf|lfcr)\\]", RegexOption.IGNORE_CASE).containsMatchIn(t)
@@ -78,9 +78,10 @@ object JuanPayload {
                 "method" -> "CONNECT"
                 "netdata", "raw", "realdata", "real_raw", "rawdata" -> "CONNECT $hp HTTP/1.1"
                 "ua", "user_agent" -> UA
-                "sni" -> c.sni.ifBlank { host }
+                "sni" -> sni.ifBlank { host }
                 "proxy", "proxy_host" -> c.pHost
                 "proxy_port" -> c.pPort.toString()
+                "sni_rotate" -> sni.ifBlank { host }
                 "path" -> c.wsPath.ifBlank { "/" }
                 "auth" -> if (c.pUser.isNotEmpty()) "Proxy-Authorization: Basic " +
                     Base64.encodeToString("${c.pUser}:${c.pPass}".toByteArray(), Base64.NO_WRAP) else ""
@@ -130,60 +131,98 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, priva
 
     private companion object { val rotation = AtomicInteger() }
 
+    /**
+     * Rotation: every connection starts at the next proxy / SNI / payload in the lists and, when one is
+     * rejected, falls through to the next combination (up to 12 tries) before giving up.
+     */
     override fun connect(sf: SocketFactory?, host: String, port: Int, timeout: Int) {
-        val viaProxy = c.from != "direct" && c.pHost.isNotBlank()
-        val th = if (viaProxy) c.pHost else host
-        val tp = if (viaProxy) c.pPort else port
+        val pxs: List<ProxyEntry?> = if (c.from == "direct" || c.proxies.isEmpty()) listOf(null) else c.proxies
+        val snis = c.snis.ifEmpty { listOf(c.sni) }
+        val pays = c.payloads.ifEmpty { listOf(c.payload) }
+        val total = pxs.size * snis.size * pays.size
+        val start = rotation.getAndIncrement()
+        val tries = minOf(total, 12)
+        val to = if (tries > 1) minOf(timeout, 10_000) else timeout
+        var last: Exception? = null
+        for (n in 0 until tries) {
+            val idx = Math.floorMod(start + n, total)
+            val pi = idx % pays.size
+            val si = (idx / pays.size) % snis.size
+            val xi = idx / (pays.size * snis.size)
+            if (total > 1) log("Rotation: try ${n + 1}/$tries" + (if (pxs.size > 1) ", proxy ${xi + 1}/${pxs.size}" else "") +
+                (if (snis.size > 1) ", SNI ${snis[si]}" else "") + (if (pays.size > 1) ", payload ${pi + 1}/${pays.size}" else ""))
+            try { attempt(host, port, to, pxs[xi], snis[si], pays[pi], start + n); return }
+            catch (e: InterruptedException) { throw e }
+            catch (e: Exception) {
+                last = e
+                if (tries == 1) throw e
+                log("Rotation: failed (${e.message?.take(120)}), trying the next one")
+            }
+        }
+        throw last ?: IOException("No connection candidate")
+    }
+
+    private fun attempt(host: String, port: Int, timeout: Int, px: ProxyEntry?, sniName: String, payload: String, rot: Int) {
+        val viaProxy = c.from != "direct" && px != null
+        val th = if (viaProxy) px!!.host else host
+        val tp = if (viaProxy) px!!.port else port
+        val pUser = px?.user ?: c.pUser
+        val pPass = px?.pass ?: c.pPass
         log("DNS: resolving $th")
         val addr = InetAddress.getByName(th)
         log("DNS: $th -> ${addr.hostAddress}")
         var s = Socket()
         protect(s)
-        s.connect(InetSocketAddress(addr, tp), timeout)
-        s.soTimeout = timeout
-        s.tcpNoDelay = true
-        log("Proxy: TCP connected ${addr.hostAddress}:$tp (${c.from})")
-        if (c.from == "tls" || c.from == "sni" || (c.from == "ws" && c.sni.isNotBlank())) {
-            val name = c.sni.ifBlank { th }
-            if (name.matches(Regex("[0-9.:]+"))) log("TLS: warning - SNI is an IP address; servers usually need a domain name here")
-            log("TLS: handshake, SNI=$name")
-            if (!c.verify) log("TLS: warning - certificate verification is OFF")
-            val ssl = tlsWrap(s, name, tp, c.verify)
-            log("TLS: ${ssl.session.protocol} ${ssl.session.cipherSuite}" + if (c.verify) ", certificate verified" else "")
-            s = ssl
-        }
-        val i = PushbackInputStream(s.getInputStream(), 32)
-        val o = s.getOutputStream()
-        val custom = c.payload.isNotBlank() && (c.custom || c.from == "dpay")
-        when (c.from) {
-            "http" -> {
-                if (custom) sendPayload(o, i, host, port)
-                else {
-                    val auth = if (c.pUser.isNotEmpty()) "Proxy-Authorization: Basic " +
-                        Base64.encodeToString("${c.pUser}:${c.pPass}".toByteArray(), Base64.NO_WRAP) + "\r\n" else ""
-                    o.write("CONNECT $host:$port HTTP/1.1\r\nHost: $host:$port\r\nProxy-Connection: keep-alive\r\n$auth\r\n".toByteArray(Charsets.ISO_8859_1)); o.flush()
-                    awaitTunnel(i, 1)
+        try {
+            s.connect(InetSocketAddress(addr, tp), timeout)
+            s.soTimeout = timeout
+            s.tcpNoDelay = true
+            log("Proxy: TCP connected ${addr.hostAddress}:$tp (${c.from})")
+            if (c.from == "tls" || c.from == "sni" || (c.from == "ws" && sniName.isNotBlank())) {
+                val name = sniName.ifBlank { th }
+                if (name.matches(Regex("[0-9.:]+"))) log("TLS: warning - SNI is an IP address; servers usually need a domain name here")
+                log("TLS: handshake, SNI=$name")
+                if (!c.verify) log("TLS: warning - certificate verification is OFF")
+                val ssl = tlsWrap(s, name, tp, c.verify)
+                log("TLS: ${ssl.session.protocol} ${ssl.session.cipherSuite}" + if (c.verify) ", certificate verified" else "")
+                s = ssl
+            }
+            val i = PushbackInputStream(s.getInputStream(), 32)
+            val o = s.getOutputStream()
+            val custom = payload.isNotBlank() && (c.custom || c.from == "dpay")
+            when (c.from) {
+                "http" -> {
+                    if (custom) sendPayload(o, i, payload, sniName, host, port, rot)
+                    else {
+                        val auth = if (pUser.isNotEmpty()) "Proxy-Authorization: Basic " +
+                            Base64.encodeToString("$pUser:$pPass".toByteArray(), Base64.NO_WRAP) + "\r\n" else ""
+                        o.write("CONNECT $host:$port HTTP/1.1\r\nHost: $host:$port\r\nProxy-Connection: keep-alive\r\n$auth\r\n".toByteArray(Charsets.ISO_8859_1)); o.flush()
+                        awaitTunnel(i, 1)
+                    }
+                }
+                "socks5" -> socks5(i, o, host, port, pUser, pPass)
+                "socks4" -> socks4(i, o, host, port, pUser)
+                "tls", "sni", "dpay" -> if (custom) sendPayload(o, i, payload, sniName, host, port, rot)
+                "ws" -> {
+                    if (custom) sendPayload(o, i, payload, sniName, host, port, rot)
+                    else {
+                        val key = Base64.encodeToString(ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }, Base64.NO_WRAP)
+                        o.write(("GET ${c.wsPath.ifBlank { "/" }} HTTP/1.1\r\nHost: ${sniName.ifBlank { host }}\r\nUpgrade: websocket\r\n" +
+                            "Connection: Upgrade\r\nSec-WebSocket-Key: $key\r\nSec-WebSocket-Version: 13\r\n\r\n").toByteArray(Charsets.ISO_8859_1)); o.flush()
+                        awaitTunnel(i, 1)
+                    }
                 }
             }
-            "socks5" -> socks5(i, o, host, port)
-            "socks4" -> socks4(i, o, host, port)
-            "tls", "sni", "dpay" -> if (custom) sendPayload(o, i, host, port)
-            "ws" -> {
-                if (custom) sendPayload(o, i, host, port)
-                else {
-                    val key = Base64.encodeToString(ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }, Base64.NO_WRAP)
-                    o.write(("GET ${c.wsPath.ifBlank { "/" }} HTTP/1.1\r\nHost: ${c.sni.ifBlank { host }}\r\nUpgrade: websocket\r\n" +
-                        "Connection: Upgrade\r\nSec-WebSocket-Key: $key\r\nSec-WebSocket-Version: 13\r\n\r\n").toByteArray(Charsets.ISO_8859_1)); o.flush()
-                    awaitTunnel(i, 1)
-                }
-            }
+            s.soTimeout = 0
+            sock = s; ins = i; outs = o
+        } catch (e: Exception) {
+            try { s.close() } catch (_: Exception) {}
+            throw e
         }
-        s.soTimeout = 0
-        sock = s; ins = i; outs = o
     }
 
-    private fun sendPayload(o: OutputStream, i: PushbackInputStream, host: String, port: Int) {
-        val parts = JuanPayload.build(c, host, port, rotation.getAndIncrement())
+    private fun sendPayload(o: OutputStream, i: PushbackInputStream, payload: String, sni: String, host: String, port: Int, rot: Int) {
+        val parts = JuanPayload.build(c, payload, sni, host, port, rot)
         if (parts.isEmpty()) throw IOException("The payload is empty after processing")
         for ((n, p) in parts.withIndex()) {
             o.write(p.data); o.flush()
@@ -260,13 +299,13 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, priva
         return sb.toString()
     }
 
-    private fun socks5(i: InputStream, o: OutputStream, host: String, port: Int) {
-        val auth = c.pUser.isNotEmpty()
+    private fun socks5(i: InputStream, o: OutputStream, host: String, port: Int, pUser: String, pPass: String) {
+        val auth = pUser.isNotEmpty()
         o.write(if (auth) byteArrayOf(5, 2, 0, 2) else byteArrayOf(5, 1, 0)); o.flush()
         val m = ByteArray(2).also { readFully(i, it) }
         if (m[0].toInt() != 5 || (m[1].toInt() and 0xFF) == 0xFF) throw IOException("SOCKS5 proxy rejected authentication methods")
         if (m[1].toInt() == 2) {
-            val u = c.pUser.toByteArray(); val p = c.pPass.toByteArray()
+            val u = pUser.toByteArray(); val p = pPass.toByteArray()
             o.write(byteArrayOf(1, u.size.toByte()) + u + byteArrayOf(p.size.toByte()) + p); o.flush()
             val r = ByteArray(2).also { readFully(i, it) }
             if (r[1].toInt() != 0) throw IOException("SOCKS5 proxy credentials rejected")
@@ -285,12 +324,12 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, priva
     }
 
     /** SOCKS4, and SOCKS4a for host names. */
-    private fun socks4(i: InputStream, o: OutputStream, host: String, port: Int) {
+    private fun socks4(i: InputStream, o: OutputStream, host: String, port: Int, pUser: String) {
         val v4 = IPV4.matches(host)
         val b = java.io.ByteArrayOutputStream()
         b.write(4); b.write(1); b.write(port shr 8); b.write(port and 0xFF)
         if (v4) b.write(InetAddress.getByName(host).address) else b.write(byteArrayOf(0, 0, 0, 1))
-        b.write(c.pUser.toByteArray()); b.write(0)
+        b.write(pUser.toByteArray()); b.write(0)
         if (!v4) { b.write(host.toByteArray()); b.write(0) }
         o.write(b.toByteArray()); o.flush()
         val r = ByteArray(8).also { readFully(i, it) }

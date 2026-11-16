@@ -101,3 +101,10 @@ Fixes the VMess AEAD response-header KDF inputs: response-header keys are derive
 - **No host-key prompt.** Server keys are accepted automatically; the fingerprint is only written to the log. Connecting never waits for confirmation.
 - **Any payload.** Placeholders: `[host] [port] [host_port] [ssh] [protocol] [method] [netData] [raw] [realData] [crlf] [cr] [lf] [lfcr] [ua] [sni] [proxy] [path] [auth] [rotate=a;b] [random=a;b] [split] [instant_split] [delay_split] [delay=ms]`. Text after a blank line is now sent (decoy request + upgrade), replies to earlier requests are skipped, 101 or a 2xx to the last request opens the tunnel, an SSH banner arriving first is also accepted, any HTTP version and LF-only replies work, and a missing closing blank line is added.
 - **Any proxy.** New *SOCKS4 proxy* (4a for names) and *Direct + Payload*. HTTP, SOCKS5, TLS and WebSocket stay. The proxy field accepts `http://user:pass@host:port`, `host:port` and `[ipv6]:port`. SOCKS5 sends IP literals as addresses.
+
+## Version 2.7.0: rotation
+
+- **Proxy rotation:** the Remote proxy field takes many entries (comma, space or new line separated). Each is `host`, `host:port`, `http://user:pass@host:port` or `[ipv6]:port` and can carry its own login.
+- **SNI rotation:** the SNI field takes many names.
+- **Payload rotation:** put several payloads and separate them with a line of `---`. The `[rotate=a;b;c]` and `[random=a;b;c]` tags still work inside one payload.
+- Every connection starts at the next proxy / SNI / payload. When one is rejected (403, 421, 5xx, TLS failure, timeout) the app falls through to the next combination, up to 12 tries, before reporting an error.

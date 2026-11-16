@@ -2,6 +2,8 @@ package com.juanvpn.app
 
 import org.json.JSONObject
 
+class ProxyEntry(val host: String, val port: Int, val user: String, val pass: String)
+
 /** Profile pushed from the HTML UI. Secrets live in memory only. */
 data class JuanCfg(
     val name: String, val from: String, val custom: Boolean,
@@ -16,7 +18,10 @@ data class JuanCfg(
     val xProto: String = "vless", val xHost: String = "", val xPort: Int = 443, val xSecret: String = "",
     val xMethod: String = "aes-256-gcm", val xNet: String = "tcp", val xTls: Boolean = true,
     val xSni: String = "", val xWsPath: String = "/", val xWsHost: String = "",
-    val policy: JSONObject? = null
+    val policy: JSONObject? = null,
+    val proxies: List<ProxyEntry> = emptyList(),   // rotating remote proxies / fronts
+    val snis: List<String> = emptyList(),          // rotating SNI names
+    val payloads: List<String> = emptyList()       // rotating payloads (separated by a line of ---)
 ) {
     fun validate(): String? = if (tunnel != "ssh") validateX() else when {
         sshHost.isBlank() -> "SSH host is required"
@@ -50,26 +55,40 @@ data class JuanCfg(
             fun s(k: String) = o.optString(k, "")
             fun i(k: String, d: Int) = s(k).toIntOrNull() ?: d
             val arr = o.optJSONArray("apps")
-            // Accept whatever people paste into the proxy field: http://user:pass@host:port, host:port, [v6]:port
-            var ph = s("pHost").trim().substringAfter("://").substringBefore('/')
-            var pp = i("pPort", 443); var pu = s("pUser"); var ppw = s("pPass")
-            if (ph.contains('@')) {
-                val cred = ph.substringBeforeLast('@'); ph = ph.substringAfterLast('@')
-                if (pu.isEmpty()) { pu = cred.substringBefore(':'); ppw = cred.substringAfter(':', "") }
+            // The proxy field takes one or many entries (comma, space, semicolon or new line separated), each as
+            // host, host:port, http://user:pass@host:port or [ipv6]:port. They rotate.
+            val defPort = i("pPort", 443)
+            fun entry(raw: String): ProxyEntry? {
+                var h = raw.trim().substringAfter("://").substringBefore('/')
+                if (h.isEmpty()) return null
+                var port = defPort; var u = s("pUser"); var pw = s("pPass")
+                if (h.contains('@')) {
+                    val cred = h.substringBeforeLast('@'); h = h.substringAfterLast('@')
+                    u = cred.substringBefore(':'); pw = cred.substringAfter(':', "")
+                }
+                if (h.startsWith("[") && h.contains(']')) {
+                    val end = h.indexOf(']')
+                    h.substring(end + 1).removePrefix(":").toIntOrNull()?.let { port = it }
+                    h = h.substring(1, end)
+                } else if (h.count { it == ':' } == 1) {
+                    h.substringAfter(':').toIntOrNull()?.let { port = it }
+                    h = h.substringBefore(':')
+                }
+                return if (h.isEmpty()) null else ProxyEntry(h, port, u, pw)
             }
-            if (ph.startsWith("[") && ph.contains(']')) {
-                val end = ph.indexOf(']')
-                ph.substring(end + 1).removePrefix(":").toIntOrNull()?.let { pp = it }
-                ph = ph.substring(1, end)
-            } else if (ph.count { it == ':' } == 1) {
-                ph.substringAfter(':').toIntOrNull()?.let { pp = it }
-                ph = ph.substringBefore(':')
-            }
+            val listSep = Regex("[,;\\s]+")
+            val proxies = s("pHost").split(listSep).mapNotNull { entry(it) }
+            val snis = s("sni").split(listSep).map { it.trim() }.filter { it.isNotEmpty() }
+            val payloads = s("payload").split(Regex("(?m)^[ \\t]*-{3,}[ \\t]*\\r?$")).filter { it.isNotBlank() }.map { it.trim('\r', '\n') }
+            val ph = proxies.firstOrNull()?.host ?: ""
+            val pp = proxies.firstOrNull()?.port ?: defPort
+            val pu = proxies.firstOrNull()?.user ?: s("pUser")
+            val ppw = proxies.firstOrNull()?.pass ?: s("pPass")
             return JuanCfg(
                 s("name").ifBlank { "My server" }, s("from").ifBlank { "direct" }, o.optBoolean("custom", false),
                 s("sshHost").trim(), i("sshPort", 22), s("user").trim(), s("pass"), s("key"), s("keyPass"),
                 s("known"), i("keepalive", 30).coerceIn(5, 300),
-                ph, pp, pu, ppw, s("sni").trim(),
+                ph, pp, pu, ppw, snis.firstOrNull() ?: "",
                 s("payload"), s("wsPath"),
                 s("appMode").ifBlank { "off" }, (0 until (arr?.length() ?: 0)).map { arr!!.getString(it) },
                 o.optBoolean("verify", true),
@@ -80,7 +99,8 @@ data class JuanCfg(
                 s("xMethod").ifBlank { "aes-256-gcm" }.lowercase(),
                 if (s("xNet") == "ws") "ws" else "tcp",
                 o.optBoolean("xTls", true), s("xSni").trim(), s("xWsPath").ifBlank { "/" }, s("xWsHost").trim(),
-                o.optJSONObject("_policy")
+                o.optJSONObject("_policy"),
+                proxies, snis, payloads
             )
         }
     }
