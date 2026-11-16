@@ -29,6 +29,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 object JuanBus {
     @Volatile private var appContext: Context? = null
     @Volatile var state = "DISCONNECTED"; @Volatile var detail = ""; @Volatile var error = ""
+    @Volatile var publicIp = ""          // IP seen through the tunnel while connected
+    @Volatile var socksPort = 0          // local forwarder of the running tunnel
     val logs = java.util.Collections.synchronizedList(ArrayList<String>())
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -292,6 +294,22 @@ class JuanVpnService : VpnService() {
         }
     }
 
+    /** Looks up the exit IP through the tunnel and logs it; after a reconnect it says whether the IP changed. */
+    private fun fetchExitIp(port: Int) {
+        val prev = JuanBus.publicIp
+        for (n in 1..4) {
+            if (stopping || JuanBus.state != "CONNECTED") return
+            val ip = JuanIp.viaSocks(port)
+            if (ip != null) {
+                JuanBus.publicIp = ip
+                JuanBus.log("Public IP: $ip" + if (prev.isNotEmpty() && prev != ip) "  (changed from $prev)" else if (prev.isNotEmpty()) "  (same as before)" else "")
+                return
+            }
+            try { Thread.sleep(2000) } catch (_: InterruptedException) { return }
+        }
+        JuanBus.log("Public IP: could not be detected")
+    }
+
     private fun awaitNetwork(maxMs: Long): Boolean {
         val end = System.currentTimeMillis() + maxMs
         while (live()) {
@@ -416,6 +434,9 @@ class JuanVpnService : VpnService() {
         post("CONNECTED", if (c.tunnel == "ssh") "SSH tunnel active" else "${c.xProto.uppercase()} tunnel active", "")
         startStats(e)
         registerMonitor()
+        JuanBus.socksPort = e.socksPort
+        val port = e.socksPort
+        Thread { fetchExitIp(port) }.also { it.name = "JuanIp" }.start()
     }
 
     /** Undo whatever a failed attempt got as far as starting (TUN, packet engine, SSH session, half-open sockets). */
@@ -466,7 +487,7 @@ class JuanVpnService : VpnService() {
         var lu = 0L; var ld = 0L
         statsJob = sched.scheduleAtFixedRate({
             val u = e.up.get(); val d = e.down.get()
-            JuanBus.onStats?.invoke(JSONObject().put("up", u).put("down", d).put("upBps", u - lu).put("downBps", d - ld)
+            JuanBus.onStats?.invoke(JSONObject().put("up", u).put("down", d).put("upBps", u - lu).put("downBps", d - ld).put("ip", JuanBus.publicIp)
                 .put("uptime", (System.currentTimeMillis() - t0) / 1000))
             lu = u; ld = d
             if (!e.alive() && !stopping && !reconnecting.get()) {
@@ -479,6 +500,7 @@ class JuanVpnService : VpnService() {
 
     private fun post(s: String, d: String, e: String) {
         JuanBus.state = s; JuanBus.detail = d; JuanBus.error = e
+        if (s == "DISCONNECTED" || s == "ERROR") { JuanBus.publicIp = ""; JuanBus.socksPort = 0 }
         JuanBus.log("State: $s${if (d.isNotEmpty()) " ($d)" else ""}")
         JuanBus.onState?.invoke(s, d, e)
         val safeNotification = when (s) {

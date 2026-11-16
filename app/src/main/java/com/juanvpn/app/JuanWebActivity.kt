@@ -243,6 +243,12 @@ class JuanWebActivity : Activity() {
         @JavascriptInterface fun deviceId(): String = DeviceId.get(applicationContext)
         @JavascriptInterface fun simOperator(): String =
             (getSystemService(android.telephony.TelephonyManager::class.java)?.simOperator ?: "")
+        /** Refreshes the Public IP tile: through the tunnel when connected, directly otherwise. */
+        @JavascriptInterface fun refreshIp() { Thread {
+            val port = JuanBus.socksPort
+            if (JuanBus.state == "CONNECTED" && port > 0) JuanIp.viaSocks(port)?.let { JuanBus.publicIp = it }
+            else js("JuanUI.ip(${q(JuanIp.direct() ?: "")})")
+        }.start() }
         /** Opens https links only (used for the Telegram button). */
         @JavascriptInterface fun openUrl(url: String) = runOnUiThread {
             if (!url.startsWith("https://")) return@runOnUiThread

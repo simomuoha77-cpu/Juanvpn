@@ -79,7 +79,7 @@ details{border-top:1px solid var(--ln);padding:12px 16px}details:first-of-type{b
 <header><div class="bar"><button class="ib" id="lead" aria-label="Menu"></button><h1 id="ttl">JUAN VPN</h1><button class="ib" id="gear" aria-label="Settings"></button><button class="ib" id="quick" aria-label="Config actions" title="Config actions"></button></div><nav class="tabs" id="tabs"></nav></header>
 <main id="v"></main><input type="file" id="fi" accept=".hj,.HJ,.json,application/json" hidden><div id="md"><div class="sheet" id="sh"></div></div><div id="toast"></div>
 <script>
-const VER='2.9.0',$=s=>document.querySelector(s);
+const VER='2.9.1',$=s=>document.querySelector(s);
 const I={menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',back:'<path d="M15 5l-7 7 7 7"/>',gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',plus:'<path d="M12 5v14M5 12h14"/>',ch:'<path d="M9 5l7 7-7 7"/>',ed:'<path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/>'};
 const ic=(n,c='')=>`<svg class="${c}" viewBox="0 0 24 24">${I[n]}</svg>`;
 const SECRET=['pass','key','keyPass','pPass','xSecret'];
@@ -95,7 +95,7 @@ pHost:'',pPort:'443',pUser:'',pPass:'',sni:'',verify:true,ws:false,wsPath:'/',pa
 dnsMode:'custom',dns1:'1.1.1.1',dns2:'1.0.0.1',dnsFwd:true,defRoute:true,ipv6:false,kill:false,routes:'',excl:'',appMode:'off',apps:[],
 reconnect:true,delay:'5',retries:'5',wake:false,
 tunnel:'ssh',xProto:'vless',xHost:'',xPort:'443',xSecret:'',xMethod:'aes-256-gcm',xNet:'ws',xTls:true,xSni:'',xWsPath:'/',xWsHost:'',link:''};
-let S={...D},LOG=[],ST={state:'DISCONNECTED',detail:'',error:''},STAT={},cur='home',appsList=[],toolOut='';
+let S={...D},LOG=[],ST={state:'DISCONNECTED',detail:'',error:''},STAT={},DIRECT_IP='',cur='home',appsList=[],toolOut='';
 try{const r=JSON.parse(localStorage.getItem('juan.p')||'{}');SECRET.forEach(k=>delete r[k]);S={...D,...r}}catch(e){}
 const save=()=>{try{const c={...S};SECRET.forEach(k=>delete c[k]);localStorage.setItem('juan.p',JSON.stringify(c))}catch(e){}};
 const B=()=>window.JuanBridge||null;
@@ -106,14 +106,14 @@ const log=(m,persist=true)=>{const raw=String(m??'');const safe=redactLockedLog(
 const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove('on'),2400)};
 
 /* native -> UI */
-window.JuanUI={hostKey(h,t,f){modal(`<h2>Trust this server?</h2><p>First connection to <b>${esc(redactLockedLog(h))}</b></p><p>Key type: ${esc(t)}</p><pre style="padding:10px 12px;min-height:0;background:#0b1424;border-radius:10px">${esc(f)}</pre><p>Compare this fingerprint with your server admin. If it differs, cancel.</p><div class="btns" style="padding:12px 0 0;border:0"><button class="btn sm pri" data-act="hkyes">Trust and connect</button><button class="btn sm bad" data-act="hkno">Cancel</button></div>`)},back(){if($('#md').classList.contains('on')){unmodal();return true}if(document.body.classList.contains('open')){document.body.classList.remove('open');return true}if(cur!=='home'){nav(PAR[cur]||'home');return true}return false},setState(s,d,e){ST={state:s,detail:redactLockedLog(d||''),error:redactLockedLog(e||(s==='ERROR'?ST.error:''))};render()},
-stats(o){STAT=o||{};if(cur==='home')render()},log:m=>log(m,false),apps(a){appsList=a||[];if(cur==='apps')render()},toolResult(t){toolOut=t;if(cur==='tools')render()},importFile(t){try{const j=JSON.parse(t);if(j.format==='JUAN-HJ'){openHJImport(t)}else if(j.format==='juanvpn-profile-v2'){delete j.format;SECRET.forEach(k=>delete j[k]);S={...D,...j,_hjLocked:false};save();log('Profile imported: '+S.name);toast('Profile imported');nav('home')}else throw Error('Unsupported file format')}catch(x){toast('Import failed: '+x.message);log('Import failed: '+x.message)}},importError(m){toast('Import failed: '+(m||'Could not read file'))}};
+window.JuanUI={hostKey(h,t,f){modal(`<h2>Trust this server?</h2><p>First connection to <b>${esc(redactLockedLog(h))}</b></p><p>Key type: ${esc(t)}</p><pre style="padding:10px 12px;min-height:0;background:#0b1424;border-radius:10px">${esc(f)}</pre><p>Compare this fingerprint with your server admin. If it differs, cancel.</p><div class="btns" style="padding:12px 0 0;border:0"><button class="btn sm pri" data-act="hkyes">Trust and connect</button><button class="btn sm bad" data-act="hkno">Cancel</button></div>`)},back(){if($('#md').classList.contains('on')){unmodal();return true}if(document.body.classList.contains('open')){document.body.classList.remove('open');return true}if(cur!=='home'){nav(PAR[cur]||'home');return true}return false},setState(s,d,e){ST={state:s,detail:redactLockedLog(d||''),error:redactLockedLog(e||(s==='ERROR'?ST.error:''))};if(s==='DISCONNECTED'||s==='ERROR'){DIRECT_IP='';setTimeout(()=>{try{if(ST.state==='DISCONNECTED'||ST.state==='ERROR')B()&&B().refreshIp&&B().refreshIp()}catch(e){}},1500)}render()},
+stats(o){STAT=o||{};if(cur==='home')render()},ip(v){DIRECT_IP=v||'';if(cur==='home')render()},log:m=>log(m,false),apps(a){appsList=a||[];if(cur==='apps')render()},toolResult(t){toolOut=t;if(cur==='tools')render()},importFile(t){try{const j=JSON.parse(t);if(j.format==='JUAN-HJ'){openHJImport(t)}else if(j.format==='juanvpn-profile-v2'){delete j.format;SECRET.forEach(k=>delete j[k]);S={...D,...j,_hjLocked:false};save();log('Profile imported: '+S.name);toast('Profile imported');nav('home')}else throw Error('Unsupported file format')}catch(x){toast('Import failed: '+x.message);log('Import failed: '+x.message)}},importError(m){toast('Import failed: '+(m||'Could not read file'))}};
 
 /* log colours: red = errors, green = success/connected, amber = warnings */
 const LC=l=>{const t=String(l).replace(/^\[?\d{2}:\d{2}:\d{2}\]?\s+/,'');if(/^Native log/.test(t))return'';
 if(/^State: ERROR|^Error:|\bfail(ed|ure)?\b|refused|rejected|denied|dropped|\blost\b|unreachable|timed out|timeout|cannot|could not|unable|invalid|bad data|closed by foreign|stopped right|revoked|HOST KEY CHANGED|not bundled|Unsupported|not supported/i.test(t))return'bad';
 if(/warning/i.test(t))return'warn';
-if(/^State: CONNECTED|authenticated as|handshake OK|certificate verified|packet engine started|transport OK|forwarder on|SOCKS5 CONNECT OK|Network: back online|Network: ready|Reconnect: connected again|Combination successful|Traffic: CHECK PASSED|TUN: STARTED/i.test(t))return'ok';return''};
+if(/^State: CONNECTED|authenticated as|handshake OK|certificate verified|packet engine started|transport OK|forwarder on|SOCKS5 CONNECT OK|Network: back online|Network: ready|^Public IP: \d|Reconnect: connected again|Combination successful|Traffic: CHECK PASSED|TUN: STARTED/i.test(t))return'ok';return''};
 const logHtml=()=>LOG.length?LOG.map(l=>`<span class="ll ${LC(l)}">${esc(redactLockedLog(l))}</span>`).join(''):'No events yet.';
 
 /* share links: vless:// trojan:// ss:// */
@@ -169,7 +169,7 @@ const V={
 home(){const on=ST.state==='CONNECTED'||ST.state==='CONNECTING';
 return `${S._hjLocked?'<div class="warn">This is a password-unlocked, owner-locked configuration. Editing is disabled.</div>':''}<button class="btn start ${on?'bad':'pri'}" data-act="${on?'stop':'start'}">${ST.state==='CONNECTING'?'Cancel':on?'Stop':'Start'}</button>
 ${card('',`<div class="st ${ST.state}"><span class="dot"></span><div style="flex:1"><b>${ST.state[0]+ST.state.slice(1).toLowerCase()}</b><div style="color:var(--mu);font-size:12.5px">${esc(ST.detail||(S._hjLocked?'Locked configuration':S.name))}</div></div></div>
-<div class="stats"><div><b>${dur(STAT.uptime)}</b><small>Uptime</small></div><div><b>${fmt(STAT.downBps)}/s</b><small>Download</small></div><div><b>${fmt(STAT.upBps)}/s</b><small>Upload</small></div><div><b>${fmt(STAT.down)}</b><small>Downloaded</small></div><div><b>${fmt(STAT.up)}</b><small>Uploaded</small></div><div><b>${esc(STAT.ip||'—')}</b><small>Public IP</small></div></div>${ST.error?`<div class="err" style="padding-top:12px">${esc(ST.error)}</div>`:''}`)}
+<div class="stats"><div><b>${dur(STAT.uptime)}</b><small>Uptime</small></div><div><b>${fmt(STAT.downBps)}/s</b><small>Download</small></div><div><b>${fmt(STAT.upBps)}/s</b><small>Upload</small></div><div><b>${fmt(STAT.down)}</b><small>Downloaded</small></div><div><b>${fmt(STAT.up)}</b><small>Uploaded</small></div><div data-act="refreshIp" style="cursor:pointer"><b>${esc(ST.state==='CONNECTED'?(STAT.ip||'…'):(DIRECT_IP||'—'))}</b><small>${ST.state==='CONNECTED'?'Public IP (VPN)':'Your IP'}</small></div></div>${ST.error?`<div class="err" style="padding-top:12px">${esc(ST.error)}</div>`:''}`)}
 ${HJ.notes&&String(HJ.notes).trim()?card('Message from config owner',`<div class="fld" style="white-space:pre-wrap;line-height:1.5">${esc(HJ.notes)}</div>`):''}
 ${card('',go('tunnel',[sum(),'Tunnel type and connect-from']))}
 ${S._hjLocked?'':S.tunnel!=='ssh'?'':payOn()?card('Payload',`<div class="fld" style="border:0"><textarea data-k="payload" spellcheck="false" autocapitalize="off" style="min-height:110px">${esc(S.payload)}</textarea></div>`+edRows()):(edRows()?card('',edRows()):'')}
@@ -371,6 +371,7 @@ else if(kind==='dl'){unmodal();JuanUI.importFile(r.text)}};
 JuanUI.cloudImportLink=u=>{nav('servers');cloudFetchStart(u)};
 
 const ACT={
+refreshIp(){try{if(B()&&B().refreshIp)B().refreshIp();toast('Checking IP…')}catch(e){}},
 tg(){if(B()&&B().openUrl)B().openUrl('https://t.me/hometechnol');else window.open('https://t.me/hometechnol','_blank')},
 copyId(){B()&&B().copyText?(B().copyText(deviceId()),toast('Device ID copied')):toast('Available inside the Android app')},
 shareId(){B()&&B().shareText?B().shareText('My JUAN VPN Device ID: '+deviceId()):toast('Available inside the Android app')},
@@ -434,4 +435,5 @@ if(SECRET.includes(d.k)&&B()&&B().saveSecrets)B().saveSecrets(JSON.stringify(Obj
 if(d.re){render()}else if(['sni','pHost','sshHost','payload'].includes(d.k)){const p=document.querySelector('.pv');if(p)p.innerHTML=preview()}});
 document.addEventListener('change',e=>{if(e.target.dataset.hj){HJ[e.target.dataset.hj]=e.target.type==='checkbox'?e.target.checked:e.target.value;saveHJ();if(RR.includes(e.target.dataset.hj))render();return}if(e.target.id!=='fi')return;const fl=e.target.files[0];if(!fl)return;fl.text().then(t=>{window.JuanUI.importFile(t);e.target.value=''})});
 render();
+setTimeout(()=>{try{if(ST.state==='DISCONNECTED'&&B()&&B().refreshIp)B().refreshIp()}catch(e){}},1200);
 </script></body></html>

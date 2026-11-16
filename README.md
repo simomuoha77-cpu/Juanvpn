@@ -131,3 +131,7 @@ SSH profiles with several proxies, SNI names or payloads now rotate automaticall
 - **Reconnect after airplane mode / network change.** While connected the service watches the network. When the network is lost (airplane mode on, no signal) or the SSH connection drops (wifi <-> mobile data), JUAN VPN waits for the network, then opens a brand-new tunnel session by itself, using the last working proxy combination first. The old TUN stays up as a blackhole in the meantime, so no traffic leaks outside the VPN while waiting. It tries up to 6 times, then reports an error. Controlled by Settings -> Auto reconnect (on by default); turning it off restores the old behaviour (error and stop).
 - Log lines: `Airplane mode: ON/OFF`, `Network: lost`, `Network: back online`, `Reconnect: attempt n/6`, `Reconnect: connected again` (red for lost/failed, green for back online/connected).
 - **Telegram:** *Join our Telegram* card on Home, a menu entry and a Help entry, opening https://t.me/hometechnol.
+
+## Version 2.9.1
+
+- **Public IP on the dashboard.** Connected: the exit IP is read through the tunnel (local SOCKS5 forwarder, HTTPS) and shown as *Public IP (VPN)*; the log prints `Public IP: x.x.x.x` and, after a reconnect, whether it changed. Disconnected: the tile shows *Your IP* (the phone's own address). Tap the tile to refresh.
