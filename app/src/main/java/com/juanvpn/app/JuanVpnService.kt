@@ -338,15 +338,10 @@ class JuanVpnService : VpnService() {
      */
     private fun smartConnect(c: JuanCfg) {
         val plan = JuanRotation.plan(c)
-        plan.skipped.forEach { JuanBus.log(it) }
         if (plan.combos.isEmpty())
-            throw JuanFatalException("No usable proxy/payload combination. " + (plan.skipped.firstOrNull() ?: "Check the proxy, SNI and payload lists."))
+            throw JuanFatalException("No usable connection settings. Check the proxy, SNI and payload.")
         val (order, prevNo) = JuanRotation.order(plan.combos, JuanRotation.loadPreferred(this, c))
         val total = order.size
-        if (total > 1) {
-            JuanBus.log("Smart Rotation: $total combinations available")
-            JuanBus.log(if (prevNo > 0) "Previous successful combination: $prevNo" else "Previous successful combination: none")
-        }
         val cycles = if (c.reconnect) c.retries.coerceIn(1, 10) + 1 else 1
         val rnd = java.util.Random()
         var last = ""
@@ -354,37 +349,30 @@ class JuanVpnService : VpnService() {
             for ((n, k) in order.withIndex()) {
                 if (!live()) return
                 val preferred = prevNo > 0 && n == 0
-                JuanBus.log(when {
-                    preferred -> "Trying preferred combination..."
-                    n == 0 -> "Trying combination 1/$total..."
-                    else -> "Trying next combination: ${n + 1}/$total"
-                })
+                JuanBus.log(if (n == 0 && cycle == 1) "Connecting..." else "Retrying connection...")
                 logCombo(c, k)
                 val ex = tryCombo(c, k, preferred) ?: return          // null = connected
                 if (!live()) return
                 val kind = JuanRotation.classify(ex)
                 val why = JuanSshEngine.friendly(JuanRotation.rootCause(ex))
-                JuanBus.log(if (preferred) "Preferred combination failed." else "Combination ${n + 1}/$total failed.")
+                JuanBus.log("Connection attempt failed.")
                 JuanBus.log("Reason: ${kind.label} - $why")
                 last = "${kind.label} - $why"
                 if (!JuanRotation.shouldRotate(ex)) throw ex            // bad login, host key, fatal setup: another combination cannot help
             }
             if (cycle < cycles) {
                 val wait = minOf(1500L * cycle, c.delay * 1000L) + rnd.nextInt(600)
-                JuanBus.log("No combination worked in cycle $cycle/$cycles. Waiting ${"%.1f".format(wait / 1000.0)}s, then starting another rotation cycle...")
+                JuanBus.log("Could not connect. Retrying in ${"%.0f".format(wait / 1000.0)}s...")
                 post("CONNECTING", "Retrying ($cycle/${cycles - 1})", "")
                 Thread.sleep(wait)
             }
         }
-        throw JuanFatalException("Could not connect: all $total combination(s) failed in $cycles cycle(s). Last error: $last")
+        throw JuanFatalException("Could not connect. Last error: $last")
     }
 
     private fun logCombo(c: JuanCfg, k: JuanRotation.Combo) {
-        val variants = if (k.usesPayload) JuanPayload.variantCount(k.payload) else 1
         JuanBus.log("Proxy: ${k.proxyLabel}" +
-            (if (c.snis.size > 1) " | SNI: ${k.sni}" else "") +
-            (if (k.usesPayload && (c.payloads.size > 1 || variants > 1)) " | Payload: ${k.payloadNo}" + (if (variants > 1) ".${k.variant + 1}" else "") else "") +
-            " | Mode: ${c.from}")
+                        " | Mode: ${c.from}")
     }
 
     /** One combination, start to finish. Returns null when connected, otherwise what went wrong (everything already cleaned up). */
@@ -398,9 +386,7 @@ class JuanVpnService : VpnService() {
             if (!live()) throw JuanConnException(JuanFail.CANCELLED, "Cancelled by user")
             bringUp(pc, eng)                              // TUN + traffic check
             if (!live()) throw JuanConnException(JuanFail.CANCELLED, "Cancelled by user")
-            JuanBus.log(if (preferred) "Preferred combination successful." else "Combination successful (profile entry ${k.no}).")
-            JuanRotation.savePreferred(this, c, k)
-            JuanBus.log("Saved as preferred proxy.")
+                        JuanRotation.savePreferred(this, c, k)
             finishConnected(pc, eng)
             null
         } catch (ex: Throwable) {

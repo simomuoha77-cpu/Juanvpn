@@ -256,21 +256,18 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, priva
         val start = if (pinned) 0 else rotation.getAndIncrement()
         val tries = minOf(total, 30)
         val to = when { pinned -> minOf(timeout, 10_000); tries > 1 -> minOf(timeout, 7_000); else -> timeout }
-        if (!pinned && total > 1) log("Rotation: $total combination(s) available, trying up to $tries this pass")
         var last: Exception? = null
         for (n in 0 until tries) {
             val idx = Math.floorMod(start + n, total)
             val pi = idx % cands.size
             val si = (idx / cands.size) % snis.size
             val xi = idx / (cands.size * snis.size)
-            if (!pinned && total > 1) log("Rotation: try ${n + 1}/$tries" + (if (pxs.size > 1) ", proxy ${xi + 1}/${pxs.size}" else "") +
-                (if (snis.size > 1) ", SNI ${snis[si]}" else "") + (if (cands.size > 1) ", payload ${pi + 1}/${cands.size}" else ""))
             try { attempt(host, port, to, pxs[xi], snis[si], cands[pi].first, cands[pi].second); return }
             catch (e: InterruptedException) { throw e }
             catch (e: Exception) {
                 last = e
                 if (tries == 1 || cancelled) throw e
-                log("Rotation: failed (${e.message?.take(120)}), trying the next one")
+                log("Retrying...")
             }
         }
         rotation.addAndGet(tries - 1)        // next connect continues after the ones already tried

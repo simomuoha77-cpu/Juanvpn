@@ -92,13 +92,12 @@ object JuanRotation {
                     JuanPayload.validate(JuanPayload.build(pin(c, k), k.payload, k.sni, c.sshHost, c.sshPort, k.variant))
                 } catch (e: Exception) { "payload could not be processed (${e.message})" }
                 if (why != null) {
-                    skipped.add("Combination ${k.no} skipped (${k.proxyLabel}): payload rejected - $why")
+                    skipped.add("Payload rejected - $why")
                     continue
                 }
             }
             ok.add(k)
         }
-        if (all.size > MAX_COMBOS) skipped.add("Rotation limited to the first $MAX_COMBOS of ${all.size} combinations")
         return Plan(ok, skipped)
     }
 
