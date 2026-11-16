@@ -37,6 +37,7 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
     @Volatile private var port = 0
     override val socksPort: Int get() = port
     private var session: Session? = null
+    @Volatile private var proxy: JuanProxy? = null
     private var server: ServerSocket? = null
     private val running = AtomicBoolean(false)
     private val pool = Executors.newCachedThreadPool()
@@ -50,11 +51,13 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
         s.setConfig("StrictHostKeyChecking", "no")
         s.setServerAliveInterval(c.keepalive * 1000)
         s.setServerAliveCountMax(3)
-        s.setProxy(JuanProxy(c, log, protect))
+        val px = JuanProxy(c, log, protect)
+        proxy = px
+        s.setProxy(px)
         log("SSH: connecting ${c.sshHost}:${c.sshPort}")
         s.connect(20_000)
         s.hostKey?.let { log("SSH: server key ${it.type} ${it.getFingerPrint(jsch)}") }
-        log("SSH: authenticated as ${c.user}")
+        log("SSH: AUTHENTICATED")
         session = s
         val ss = ServerSocket(0, 128, InetAddress.getByName("127.0.0.1"))
         server = ss; port = ss.localPort; running.set(true)
@@ -105,6 +108,7 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
 
     override fun stop() {
         running.set(false)
+        try { proxy?.cancel() } catch (_: Exception) {}      // aborts a handshake that is still in progress
         try { server?.close() } catch (_: Exception) {}
         try { session?.disconnect() } catch (_: Exception) {}
         pool.shutdownNow()

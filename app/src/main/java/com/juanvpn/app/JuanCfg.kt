@@ -21,7 +21,8 @@ data class JuanCfg(
     val policy: JSONObject? = null,
     val proxies: List<ProxyEntry> = emptyList(),   // rotating remote proxies / fronts
     val snis: List<String> = emptyList(),          // rotating SNI names
-    val payloads: List<String> = emptyList()       // rotating payloads (separated by a line of ---)
+    val payloads: List<String> = emptyList(),      // rotating payloads (separated by a line of ---)
+    val pinVariant: Int = -1                       // >= 0: smart rotation locked this copy to one combination (set by JuanRotation.pin)
 ) {
     fun validate(): String? = if (tunnel != "ssh") validateX() else when {
         sshHost.isBlank() -> "SSH host is required"

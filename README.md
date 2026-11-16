@@ -113,3 +113,15 @@ Fixes the VMess AEAD response-header KDF inputs: response-header keys are derive
 
 - `[rotate=a;b;c]` and `[random=a;b;c]` now work as real fallbacks: every option is its own candidate. If the server rejects one (403, 421, ...) the app tries the next option in the same connect instead of stopping. Options may contain tags, e.g. `[rotate=GET / HTTP/1.1[crlf]Host: a[crlf][crlf];CONNECT [host_port] HTTP/1.0[crlf][crlf]]`.
 - The log now shows the payload request line and Host header that was sent, so a rejected payload is easy to spot.
+
+## Smart proxy rotation (v2.8.0)
+
+SSH profiles with several proxies, SNI names or payloads now rotate automatically:
+
+- Every proxy x SNI x payload combination is one candidate. The last combination that fully connected is tried first.
+- Each candidate is tried once per cycle. If none works the app waits and starts a new cycle (cycles = Retries + 1 when auto-reconnect is on).
+- A combination counts as working only after: TCP connected, HTTP/WebSocket reply (WebSocket mode needs **101**), SSH banner, SSH login, TUN started and the traffic check passed. Only then is the state CONNECTED and the combination saved.
+- The saved record (`juan_rotation` preferences) holds proxy, mode, SNI, payload number/variant/hash, SSH server:port and a timestamp. No SSH or proxy passwords, and the profile itself is never edited.
+- Failures are logged by kind: DNS, TCP timeout/refused, TLS, 301/302, 400/403, 5xx, invalid WebSocket handshake, proxy closed, SSH banner/timeout, SSH auth, TUN init, traffic check.
+- Payloads are sent exactly as written (custom payloads, `[split]`, `[crlf]`, `[rotate=..]`, large Content-Length all unchanged). They are only refused when oversize (16 KB, 32 parts, 20 s of delay), contain a NUL byte, have a malformed request line, or contradict themselves (two different Content-Length values, or Content-Length with Transfer-Encoding). A refused combination is skipped and logged; nothing is rewritten.
+- Disconnect cancels any attempt in progress, and a new connect waits for the cancelled worker, so two workers never run together.

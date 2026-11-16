@@ -11,6 +11,8 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLPeerUnverifiedException
 import javax.net.ssl.SSLSocket
@@ -147,6 +149,57 @@ object JuanPayload {
         return parts
     }
 
+    const val MAX_BYTES = 16 * 1024
+    const val MAX_PARTS = 32
+    const val MAX_PAUSE_MS = 20_000L
+    private val requestLine = Regex("^[A-Za-z]+ \\S+ HTTP/\\d(?:\\.\\d)?$")
+    private val headerLine = Regex("^([^:\\s]+)[ \\t]*:(.*)$")
+
+    /**
+     * Returns why a built payload must not be sent, or null when it is fine. It only ever rejects: the payload the
+     * user wrote is never edited. Bare LF/CR, [split], [delay], a huge declared Content-Length and other injector
+     * tricks stay allowed; what is refused is oversize, NUL bytes, malformed request lines and contradictory framing.
+     */
+    fun validate(parts: List<Part>): String? {
+        if (parts.isEmpty()) return "the payload is empty"
+        if (parts.size > MAX_PARTS) return "too many split parts (${parts.size}, maximum $MAX_PARTS)"
+        val size = parts.sumOf { it.data.size }
+        if (size > MAX_BYTES) return "payload is $size bytes (maximum $MAX_BYTES)"
+        if (parts.sumOf { it.pauseMs } > MAX_PAUSE_MS) return "total delay is too long (maximum ${MAX_PAUSE_MS / 1000}s)"
+        if (parts.any { p -> p.data.any { it == 0.toByte() } }) return "it contains a NUL byte"
+        val text = parts.joinToString("") { String(it.data, Charsets.ISO_8859_1) }
+        var atStart = true
+        var lengths = HashSet<String>()
+        var chunked = false
+        fun closeRequest(): String? {
+            if (lengths.size > 1) return "conflicting Content-Length headers"
+            if (lengths.isNotEmpty() && chunked) return "both Content-Length and Transfer-Encoding are set"
+            lengths = HashSet(); chunked = false
+            return null
+        }
+        for (raw in text.split("\r\n", "\n")) {
+            val line = raw.trimEnd('\r')
+            if (line.isEmpty()) { closeRequest()?.let { return it }; atStart = true; continue }
+            if (atStart) {
+                atStart = false
+                if (line.contains(" HTTP/")) {
+                    if (!requestLine.matches(line)) return "malformed HTTP request line"
+                    continue
+                }
+                lengths = HashSet(); chunked = false
+                continue
+            }
+            val h = headerLine.find(line) ?: continue
+            val name = h.groupValues[1].lowercase()
+            val value = h.groupValues[2].trim()
+            if (name == "content-length") {
+                if (!Regex("\\d{1,19}").matches(value)) return "Content-Length is not a number"
+                lengths.add(value.trimStart('0').ifEmpty { "0" })
+            } else if (name == "transfer-encoding") chunked = true
+        }
+        return closeRequest()
+    }
+
     private fun bytes(s: String) = if (s.any { it.code > 255 }) s.toByteArray(Charsets.UTF_8) else s.toByteArray(Charsets.ISO_8859_1)
 
     /** How many HTTP replies to expect (one per request line in the payload). 0 = not HTTP, do not wait. */
@@ -156,43 +209,67 @@ object JuanPayload {
     }
 }
 
-/** Real upstream transport for SSH: direct, HTTP CONNECT/payload, SOCKS4/5, TLS(+SNI)+payload, WebSocket upgrade, direct payload. */
+/**
+ * Real upstream transport for SSH: direct, HTTP CONNECT/payload, SOCKS4/5, TLS(+SNI)+payload, WebSocket upgrade, direct payload.
+ *
+ * Normal use (smart rotation): the service hands this class a profile already pinned to ONE combination
+ * ([JuanCfg.pinVariant] >= 0) and does the rotating itself, so there is one attempt per combination and the
+ * SSH login / TUN / traffic stages can be part of "success". Without a pin it still rotates internally.
+ *
+ * Every attempt is checked stage by stage: TCP -> (TLS) -> HTTP reply (WebSocket mode needs 101) -> SSH banner.
+ */
 class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, private val protect: (Socket) -> Unit = {}) : Proxy {
     private var sock: Socket? = null
     private var ins: InputStream? = null
     private var outs: OutputStream? = null
+    @Volatile private var inflight: Socket? = null
+    @Volatile private var cancelled = false
+    @Volatile private var wsWas2xx = false
 
     private companion object { val rotation = AtomicInteger() }
 
+    /** Called when the user disconnects: aborts a handshake that is still in progress. */
+    fun cancel() {
+        cancelled = true
+        try { inflight?.close() } catch (_: Exception) {}
+        try { sock?.close() } catch (_: Exception) {}
+    }
+
+    private fun checkCancelled() {
+        if (cancelled || Thread.currentThread().isInterrupted) throw JuanConnException(JuanFail.CANCELLED, "Cancelled by user")
+    }
+
     /**
-     * Rotation: every connection starts at the next proxy / SNI / payload in the lists and, when one is
-     * rejected, falls through to the next combination (up to 12 tries) before giving up.
+     * Pinned (smart rotation): exactly one attempt. Unpinned: every connection starts at the next proxy / SNI /
+     * payload and falls through to the next combination (up to 30 tries) before giving up.
      */
     override fun connect(sf: SocketFactory?, host: String, port: Int, timeout: Int) {
+        val pinned = c.pinVariant >= 0
         val pxs: List<ProxyEntry?> = if (c.from == "direct" || c.proxies.isEmpty()) listOf(null) else c.proxies
         val snis = c.snis.ifEmpty { listOf(c.sni) }
         val pays = c.payloads.ifEmpty { listOf(c.payload) }
         // every option of a [rotate=..]/[random=..] tag is its own candidate payload
         val cands = ArrayList<Pair<String, Int>>()
-        for (p in pays) for (v in 0 until JuanPayload.variantCount(p)) cands.add(p to v)
+        if (pinned) cands.add((pays.firstOrNull() ?: c.payload) to c.pinVariant)
+        else for (p in pays) for (v in 0 until JuanPayload.variantCount(p)) cands.add(p to v)
         val total = pxs.size * snis.size * cands.size
-        val start = rotation.getAndIncrement()
+        val start = if (pinned) 0 else rotation.getAndIncrement()
         val tries = minOf(total, 30)
-        val to = if (tries > 1) minOf(timeout, 7_000) else timeout
-        if (total > 1) log("Rotation: $total combination(s) available, trying up to $tries this pass")
+        val to = when { pinned -> minOf(timeout, 10_000); tries > 1 -> minOf(timeout, 7_000); else -> timeout }
+        if (!pinned && total > 1) log("Rotation: $total combination(s) available, trying up to $tries this pass")
         var last: Exception? = null
         for (n in 0 until tries) {
             val idx = Math.floorMod(start + n, total)
             val pi = idx % cands.size
             val si = (idx / cands.size) % snis.size
             val xi = idx / (cands.size * snis.size)
-            if (total > 1) log("Rotation: try ${n + 1}/$tries" + (if (pxs.size > 1) ", proxy ${xi + 1}/${pxs.size}" else "") +
+            if (!pinned && total > 1) log("Rotation: try ${n + 1}/$tries" + (if (pxs.size > 1) ", proxy ${xi + 1}/${pxs.size}" else "") +
                 (if (snis.size > 1) ", SNI ${snis[si]}" else "") + (if (cands.size > 1) ", payload ${pi + 1}/${cands.size}" else ""))
             try { attempt(host, port, to, pxs[xi], snis[si], cands[pi].first, cands[pi].second); return }
             catch (e: InterruptedException) { throw e }
             catch (e: Exception) {
                 last = e
-                if (tries == 1) throw e
+                if (tries == 1 || cancelled) throw e
                 log("Rotation: failed (${e.message?.take(120)}), trying the next one")
             }
         }
@@ -201,32 +278,55 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, priva
     }
 
     private fun attempt(host: String, port: Int, timeout: Int, px: ProxyEntry?, sniName: String, payload: String, rot: Int) {
+        checkCancelled()
+        wsWas2xx = false
         val viaProxy = c.from != "direct" && px != null
         val th = if (viaProxy) px!!.host else host
         val tp = if (viaProxy) px!!.port else port
         val pUser = px?.user ?: c.pUser
         val pPass = px?.pass ?: c.pPass
         log("DNS: resolving $th")
-        val addr = InetAddress.getByName(th)
+        val addr = try { InetAddress.getByName(th) } catch (e: UnknownHostException) {
+            log("DNS: FAILED ($th)")
+            throw JuanConnException(JuanFail.DNS, "Cannot resolve host: $th", e)
+        }
         log("DNS: $th -> ${addr.hostAddress}")
         var s = Socket()
+        inflight = s
         protect(s)
         try {
-            s.connect(InetSocketAddress(addr, tp), timeout)
+            try { s.connect(InetSocketAddress(addr, tp), timeout) }
+            catch (e: SocketTimeoutException) {
+                log("TCP: TIMEOUT ($th:$tp)")
+                throw JuanConnException(JuanFail.TCP_TIMEOUT, "Connection timed out: $th:$tp", e)
+            } catch (e: java.net.ConnectException) {
+                if (e.message?.contains("refused", true) == true) {
+                    log("TCP: REFUSED ($th:$tp)")
+                    throw JuanConnException(JuanFail.TCP_REFUSED, "Connection refused: $th:$tp", e)
+                }
+                throw e
+            }
+            checkCancelled()
             s.soTimeout = timeout
             s.tcpNoDelay = true
-            log("Proxy: TCP connected ${addr.hostAddress}:$tp (${c.from})")
+            log("TCP: CONNECTED ${addr.hostAddress}:$tp (${c.from})")
             if (c.from == "tls" || c.from == "sni" || (c.from == "ws" && sniName.isNotBlank())) {
                 val name = sniName.ifBlank { th }
                 if (name.matches(Regex("[0-9.:]+"))) log("TLS: warning - SNI is an IP address; servers usually need a domain name here")
                 log("TLS: handshake, SNI=$name")
                 if (!c.verify) log("TLS: warning - certificate verification is OFF")
-                val ssl = tlsWrap(s, name, tp, c.verify)
+                val ssl = try { tlsWrap(s, name, tp, c.verify) } catch (e: javax.net.ssl.SSLException) {
+                    log("TLS: FAILED")
+                    throw JuanConnException(JuanFail.TLS, "TLS failed: ${e.message}", e)
+                }
                 log("TLS: ${ssl.session.protocol} ${ssl.session.cipherSuite}" + if (c.verify) ", certificate verified" else "")
                 s = ssl
+                inflight = s
             }
-            val i = PushbackInputStream(s.getInputStream(), 32)
+            checkCancelled()
+            val i = PushbackInputStream(s.getInputStream(), 512)
             val o = s.getOutputStream()
+            val ws = c.from == "ws"
             val custom = payload.isNotBlank() && (c.custom || c.from == "dpay")
             when (c.from) {
                 "http" -> {
@@ -235,7 +335,7 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, priva
                         val auth = if (pUser.isNotEmpty()) "Proxy-Authorization: Basic " +
                             Base64.encodeToString("$pUser:$pPass".toByteArray(), Base64.NO_WRAP) + "\r\n" else ""
                         o.write("CONNECT $host:$port HTTP/1.1\r\nHost: $host:$port\r\nProxy-Connection: keep-alive\r\n$auth\r\n".toByteArray(Charsets.ISO_8859_1)); o.flush()
-                        awaitTunnel(i, 1)
+                        awaitTunnel(i, 1, false)
                     }
                 }
                 "socks5" -> socks5(i, o, host, port, pUser, pPass)
@@ -247,10 +347,12 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, priva
                         val key = Base64.encodeToString(ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }, Base64.NO_WRAP)
                         o.write(("GET ${c.wsPath.ifBlank { "/" }} HTTP/1.1\r\nHost: ${sniName.ifBlank { host }}\r\nUpgrade: websocket\r\n" +
                             "Connection: Upgrade\r\nSec-WebSocket-Key: $key\r\nSec-WebSocket-Version: 13\r\n\r\n").toByteArray(Charsets.ISO_8859_1)); o.flush()
-                        awaitTunnel(i, 1)
+                        awaitTunnel(i, 1, ws, key)
                     }
                 }
             }
+            // The tunnel only counts as open once the SSH server itself has answered with its banner.
+            verifyBanner(i)
             s.soTimeout = 0
             sock = s; ins = i; outs = o
         } catch (e: Exception) {
@@ -261,8 +363,12 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, priva
 
     private fun sendPayload(o: OutputStream, i: PushbackInputStream, payload: String, sni: String, host: String, port: Int, rot: Int) {
         val parts = JuanPayload.build(c, payload, sni, host, port, rot)
-        if (parts.isEmpty()) throw IOException("The payload is empty after processing")
+        JuanPayload.validate(parts)?.let {
+            log("Payload: REJECTED - $it")
+            throw JuanConnException(JuanFail.BAD_PAYLOAD, "Payload rejected: $it")
+        }
         for ((n, p) in parts.withIndex()) {
+            checkCancelled()
             o.write(p.data); o.flush()
             if (p.pauseMs > 0 && n < parts.size - 1) Thread.sleep(p.pauseMs)
         }
@@ -273,48 +379,126 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, priva
         val expect = JuanPayload.expectedReplies(parts)
         log("Payload: sent ${parts.sumOf { it.data.size }} bytes in ${parts.size} part(s), $expect HTTP request(s)")
         if (expect == 0) { log("Payload: not an HTTP request, not waiting for a reply"); return }
-        awaitTunnel(i, expect)
+        awaitTunnel(i, expect, c.from == "ws")
     }
 
     /**
-     * Reads replies until the tunnel is open. Replies to earlier (decoy) requests are skipped; 101 or a 2xx to
-     * the last request opens the tunnel; an SSH banner arriving first also means the tunnel is already open.
+     * Reads replies until the tunnel is open. Replies to earlier (decoy) requests are skipped.
+     * WebSocket mode needs 101 (an HTTP 200 is only tolerated when the SSH banner follows, see [verifyBanner]);
+     * other HTTP modes accept 101 or a 2xx to the last request (a CONNECT 200 is the normal success there).
+     * 3xx / 4xx / 5xx are rejections with their own failure kind.
      */
-    private fun awaitTunnel(i: PushbackInputStream, expected: Int) {
+    private fun awaitTunnel(i: PushbackInputStream, expected: Int, ws: Boolean, key: String? = null) {
+        val proto = if (ws) "WebSocket" else "HTTP"
         var left = expected
         var saw2xx = false
         while (true) {
-            val head = try { readHead(i) } catch (e: java.net.SocketTimeoutException) {
+            checkCancelled()
+            val head = try { readHead(i, ws) } catch (e: SocketTimeoutException) {
                 if (saw2xx) { log("Proxy: no further reply, continuing"); return }
-                throw e
+                log("$proto: NO REPLY (timeout)")
+                throw JuanConnException(JuanFail.PROXY_TIMEOUT, "Connection timed out: the proxy did not answer the handshake", e)
             }
-            if (head == null) { log("Proxy: SSH banner received, tunnel is open"); return }
+            if (head == null) { log("$proto: no HTTP reply, SSH banner arrived first"); return }
             val first = head.substringBefore("\n").trim()
             val code = first.split(" ").getOrNull(1)?.toIntOrNull()
             left--
             when {
-                code == 101 -> { log("Proxy: handshake OK ($first)"); return }
-                code != null && code in 200..299 && left <= 0 -> { log("Proxy: handshake OK ($first)"); return }
-                code != null && code in 200..299 -> { saw2xx = true; log("Proxy: skipping reply to earlier request ($first)"); skipBody(i, head) }
+                code == 101 -> {
+                    if (ws) log("WebSocket: 101 SWITCHING PROTOCOLS") else log("HTTP: $first")
+                    if (ws && key != null) checkAccept(head, key)
+                    return
+                }
+                code != null && code in 200..299 && left <= 0 -> {
+                    if (ws) { wsWas2xx = true; log("WebSocket: HTTP $code received, expected 101") } else log("HTTP: $first")
+                    return
+                }
+                code != null && code in 200..299 -> {
+                    saw2xx = true; if (ws) wsWas2xx = true
+                    log("Proxy: skipping reply to earlier request ($first)"); skipBody(i, head)
+                }
                 left > 0 -> { log("Proxy: skipping reply to earlier request ($first)"); skipBody(i, head) }
-                else -> throw IOException("Proxy replied: $first")
+                else -> {
+                    log("$proto: REJECTED ($first)")
+                    val kind = when {
+                        code == null -> JuanFail.BAD_REPLY
+                        code in 300..399 -> JuanFail.HTTP_REDIRECT
+                        code in 500..599 -> JuanFail.HTTP_SERVER
+                        else -> JuanFail.HTTP_REJECT
+                    }
+                    throw JuanConnException(kind, "Proxy replied: $first")
+                }
             }
         }
     }
 
+    /** Built-in WebSocket request only (we know the key): a present-but-wrong Sec-WebSocket-Accept is not a real upgrade. */
+    private fun checkAccept(head: String, key: String) {
+        val got = Regex("(?im)^sec-websocket-accept:[ \\t]*(\\S+)").find(head)?.groupValues?.get(1) ?: return
+        val want = Base64.encodeToString(
+            java.security.MessageDigest.getInstance("SHA-1").digest((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").toByteArray()), Base64.NO_WRAP)
+        if (got != want) {
+            log("WebSocket: REJECTED (bad Sec-WebSocket-Accept)")
+            throw JuanConnException(JuanFail.BAD_WS, "Invalid WebSocket handshake: Sec-WebSocket-Accept does not match")
+        }
+    }
+
+    /** Waits for the SSH server's own identification line and puts it back for JSch to read. */
+    private fun verifyBanner(i: PushbackInputStream) {
+        val buf = ByteArray(255)
+        var n = 0
+        try {
+            while (n < buf.size) {
+                checkCancelled()
+                val b = i.read()
+                if (b < 0) {
+                    log("SSH: BANNER NOT RECEIVED (connection closed)")
+                    throw JuanConnException(JuanFail.PROXY_CLOSED, "Proxy closed the connection before the SSH banner")
+                }
+                buf[n++] = b.toByte()
+                if (n == 4 && String(buf, 0, 4, Charsets.ISO_8859_1) != "SSH-") {
+                    if (wsWas2xx) {
+                        log("WebSocket: REJECTED (HTTP 200 is not an upgrade, no SSH banner)")
+                        throw JuanConnException(JuanFail.BAD_WS, "Invalid WebSocket handshake: the proxy answered 200 instead of 101 and no SSH banner followed")
+                    }
+                    log("SSH: BANNER NOT RECEIVED (server sent other data)")
+                    throw JuanConnException(JuanFail.SSH_BANNER, "No SSH banner: the server sent something else")
+                }
+                if (b == 10) break
+            }
+        } catch (e: SocketTimeoutException) {
+            if (wsWas2xx) {
+                log("WebSocket: REJECTED (HTTP 200 is not an upgrade, no SSH banner)")
+                throw JuanConnException(JuanFail.BAD_WS, "Invalid WebSocket handshake: the proxy answered 200 instead of 101 and no SSH banner followed", e)
+            }
+            log("SSH: BANNER TIMEOUT")
+            throw JuanConnException(JuanFail.SSH_TIMEOUT, "Connection timed out: the SSH server sent no banner", e)
+        }
+        i.unread(buf, 0, n)
+        log("SSH: BANNER RECEIVED (" + String(buf, 0, n, Charsets.ISO_8859_1).trim().filter { it.code in 32..126 }.take(60) + ")")
+    }
+
     /** Returns the reply head, or null when the server started with an SSH banner (bytes are pushed back). */
-    private fun readHead(i: PushbackInputStream): String? {
+    private fun readHead(i: PushbackInputStream, ws: Boolean): String? {
         val sb = StringBuilder()
         while (sb.length < 16384) {
+            checkCancelled()
             val b = i.read()
-            if (b < 0) throw IOException("Proxy closed the connection during handshake")
+            if (b < 0) {
+                log("Proxy: CLOSED during handshake")
+                throw JuanConnException(JuanFail.PROXY_CLOSED, "Proxy closed the connection during handshake")
+            }
             if (sb.isEmpty() && (b == 13 || b == 10)) continue            // stray blank lines before a reply
             sb.append(b.toChar())
             if (sb.length == 4 && sb.toString() == "SSH-") { i.unread("SSH-".toByteArray()); return null }
-            if (sb.length == 5 && !sb.startsWith("HTTP/")) throw IOException("Unexpected reply from the proxy (not HTTP): " + sb.toString().filter { it.code in 32..126 })
+            if (sb.length == 5 && !sb.startsWith("HTTP/")) {
+                log((if (ws) "WebSocket" else "HTTP") + ": REJECTED (reply is not HTTP)")
+                throw JuanConnException(if (ws) JuanFail.BAD_WS else JuanFail.BAD_REPLY,
+                    "Unexpected reply from the proxy (not HTTP): " + sb.toString().filter { it.code in 32..126 })
+            }
             if (sb.endsWith("\r\n\r\n") || sb.endsWith("\n\n")) return sb.toString()
         }
-        throw IOException("Proxy response too large")
+        throw JuanConnException(JuanFail.BAD_REPLY, "Proxy response too large")
     }
 
     private fun skipBody(i: InputStream, head: String) {

@@ -99,7 +99,8 @@ class JuanVpnService : VpnService() {
     private var engine: TunnelEngine? = null
     private var tun: ParcelFileDescriptor? = null
     @Volatile private var tunFd = -1
-    private var worker: Thread? = null
+    @Volatile private var worker: Thread? = null
+    @Volatile private var lastWorker: Thread? = null
     private val sched = Executors.newSingleThreadScheduledExecutor()
     private var statsJob: ScheduledFuture<*>? = null
     private var t0 = 0L
@@ -108,7 +109,7 @@ class JuanVpnService : VpnService() {
     override fun onStartCommand(i: Intent?, f: Int, id: Int): Int {
         if (i?.action == STOP) { stopping = true; teardown(); post("DISCONNECTED", "", ""); stopSelf(); return START_NOT_STICKY }
         val json = i?.getStringExtra(CFG) ?: run { stopSelf(); return START_NOT_STICKY }
-        if (JuanBus.state == "CONNECTING" || JuanBus.state == "CONNECTED") {
+        if (JuanBus.state == "CONNECTING" || JuanBus.state == "CONNECTED" || (!stopping && worker?.isAlive == true)) {
             JuanBus.log("Ignored duplicate connection start request")
             return START_NOT_STICKY
         }
@@ -116,7 +117,17 @@ class JuanVpnService : VpnService() {
         ServiceCompat.startForeground(this, NID, notif("Connecting…"),
             if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)
         stopping = false
-        worker = Thread { connectFlow(json) }.apply { name = "JuanConnect"; start() }
+        // A new worker first waits for a cancelled one to finish, so two workers never run side by side.
+        val prev = lastWorker
+        val t = Thread {
+            try {
+                if (prev != null && prev.isAlive && prev !== Thread.currentThread()) prev.join(4000)
+                connectFlow(json)
+            } catch (_: InterruptedException) {}
+        }
+        t.name = "JuanConnect"
+        worker = t; lastWorker = t
+        t.start()
         return START_NOT_STICKY
     }
 
@@ -149,38 +160,146 @@ class JuanVpnService : VpnService() {
         }
     }
 
+    /** True while this is still the current worker and nobody asked to disconnect. */
+    private fun live() = !stopping && Thread.currentThread() === worker && !Thread.currentThread().isInterrupted
+
     private fun connectFlow(json: String) {
         try {
             JuanBus.log("Connection worker started")
             val c = JuanPolicy.apply(this, JuanCfg.parse(json))
             JuanPolicy.check(this, c)?.let { throw IllegalStateException(it) }
             c.validate()?.let { throw IllegalArgumentException(it) }
-            if (stopping || Thread.currentThread().isInterrupted) return
+            if (!live()) return
             post("CONNECTING", when (c.tunnel) { "ssh" -> "Opening SSH tunnel"; "ss" -> "Opening Shadowsocks tunnel"; else -> "Opening ${c.xProto.uppercase()} tunnel" }, "")
-            val e = startWithRetry(c) ?: return
-            if (stopping || Thread.currentThread().isInterrupted) { e.stop(); return }
-            post("CONNECTING", "Starting TUN", "")
-            val pfd = build(c) ?: throw IllegalStateException("VPN permission missing or revoked")
-            tunFd = pfd.detachFd()   // native code may close it; Java must not double-close (fdsan)
-            if (stopping || Thread.currentThread().isInterrupted) return
-            JuanBus.log("TUN: interface up, starting native engine")
-            TunEngine.start(this, tunFd, e.socksPort)
-            JuanBus.log("TUN: native engine called")
-            Thread.sleep(700)
-            if (!tunIsOpen(tunFd)) throw IllegalStateException("The TUN engine stopped right after starting. Open Log and tap Native log for details.")
-            JuanBus.log("TUN: packet engine started")
-            post("CONNECTING", "Checking tunnel", "")
-            JuanBus.log("Tunnel: running traffic check")
-            if (!e.probe()) throw IllegalStateException(e.probeError.ifBlank { "The tunnel is up but no traffic passed through it" })
-            t0 = System.currentTimeMillis()
-            post("CONNECTED", if (c.tunnel == "ssh") "SSH tunnel active" else "${c.xProto.uppercase()} tunnel active", "")
-            startStats(e)
+            if (c.tunnel == "ssh") smartConnect(c) else legacyConnect(c)
         } catch (ex: Throwable) {
-            if (stopping || Thread.currentThread().isInterrupted) return
-            val msg = JuanSshEngine.friendly(ex.cause ?: ex)
+            if (!live()) return
+            val msg = if (ex is JuanFatalException) (ex.message ?: "Connection failed") else JuanSshEngine.friendly(JuanRotation.rootCause(ex))
             JuanBus.log("Error: $msg")
             teardown(); post("ERROR", "", msg); stopSelf()
         }
+    }
+
+    /** Shadowsocks / V2Ray profiles: no proxy combinations to rotate, so the original retry loop is kept. */
+    private fun legacyConnect(c: JuanCfg) {
+        val e = startWithRetry(c) ?: return
+        if (!live()) { e.stop(); return }
+        bringUp(c, e)
+        finishConnected(c, e)
+    }
+
+    /**
+     * SSH profiles. Every proxy x SNI x payload combination is one candidate. The last successful one goes first;
+     * each candidate is tried once per cycle, a whole cycle that fails is followed by a pause and a new cycle.
+     * A combination only counts as working after TCP, WebSocket/HTTP, SSH banner, SSH login, TUN and the traffic check.
+     */
+    private fun smartConnect(c: JuanCfg) {
+        val plan = JuanRotation.plan(c)
+        plan.skipped.forEach { JuanBus.log(it) }
+        if (plan.combos.isEmpty())
+            throw JuanFatalException("No usable proxy/payload combination. " + (plan.skipped.firstOrNull() ?: "Check the proxy, SNI and payload lists."))
+        val (order, prevNo) = JuanRotation.order(plan.combos, JuanRotation.loadPreferred(this, c))
+        val total = order.size
+        if (total > 1) {
+            JuanBus.log("Smart Rotation: $total combinations available")
+            JuanBus.log(if (prevNo > 0) "Previous successful combination: $prevNo" else "Previous successful combination: none")
+        }
+        val cycles = if (c.reconnect) c.retries.coerceIn(1, 10) + 1 else 1
+        val rnd = java.util.Random()
+        var last = ""
+        for (cycle in 1..cycles) {
+            for ((n, k) in order.withIndex()) {
+                if (!live()) return
+                val preferred = prevNo > 0 && n == 0
+                JuanBus.log(when {
+                    preferred -> "Trying preferred combination..."
+                    n == 0 -> "Trying combination 1/$total..."
+                    else -> "Trying next combination: ${n + 1}/$total"
+                })
+                logCombo(c, k)
+                val ex = tryCombo(c, k, preferred) ?: return          // null = connected
+                if (!live()) return
+                val kind = JuanRotation.classify(ex)
+                val why = JuanSshEngine.friendly(JuanRotation.rootCause(ex))
+                JuanBus.log(if (preferred) "Preferred combination failed." else "Combination ${k.no} failed.")
+                JuanBus.log("Reason: ${kind.label} - $why")
+                last = "${kind.label} - $why"
+                if (!JuanRotation.shouldRotate(ex)) throw ex            // bad login, host key, fatal setup: another combination cannot help
+            }
+            if (cycle < cycles) {
+                val wait = minOf(1500L * cycle, c.delay * 1000L) + rnd.nextInt(600)
+                JuanBus.log("No combination worked in cycle $cycle/$cycles. Waiting ${"%.1f".format(wait / 1000.0)}s, then starting another rotation cycle...")
+                post("CONNECTING", "Retrying ($cycle/${cycles - 1})", "")
+                Thread.sleep(wait)
+            }
+        }
+        throw JuanFatalException("Could not connect: all $total combination(s) failed in $cycles cycle(s). Last error: $last")
+    }
+
+    private fun logCombo(c: JuanCfg, k: JuanRotation.Combo) {
+        val variants = if (k.usesPayload) JuanPayload.variantCount(k.payload) else 1
+        JuanBus.log("Proxy: ${k.proxyLabel}" +
+            (if (c.snis.size > 1) " | SNI: ${k.sni}" else "") +
+            (if (k.usesPayload && (c.payloads.size > 1 || variants > 1)) " | Payload: ${k.payloadNo}" + (if (variants > 1) ".${k.variant + 1}" else "") else "") +
+            " | Mode: ${c.from}")
+    }
+
+    /** One combination, start to finish. Returns null when connected, otherwise what went wrong (everything already cleaned up). */
+    private fun tryCombo(c: JuanCfg, k: JuanRotation.Combo, preferred: Boolean): Throwable? {
+        if (!live()) return JuanConnException(JuanFail.CANCELLED, "Cancelled by user")
+        val pc = JuanRotation.pin(c, k)
+        val eng = makeEngine(pc)
+        engine = eng
+        return try {
+            eng.start()                                   // TCP, WebSocket/HTTP, SSH banner, SSH login
+            if (!live()) throw JuanConnException(JuanFail.CANCELLED, "Cancelled by user")
+            bringUp(pc, eng)                              // TUN + traffic check
+            if (!live()) throw JuanConnException(JuanFail.CANCELLED, "Cancelled by user")
+            JuanBus.log(if (preferred) "Preferred combination successful." else "Combination ${k.no} successful.")
+            JuanRotation.savePreferred(this, c, k)
+            JuanBus.log("Saved as preferred proxy.")
+            finishConnected(pc, eng)
+            null
+        } catch (ex: Throwable) {
+            abortAttempt()
+            ex
+        }
+    }
+
+    /** Starts the packet engine on a tunnel that is already open and proves traffic passes. Throws the stage that failed. */
+    private fun bringUp(c: JuanCfg, e: TunnelEngine) {
+        post("CONNECTING", "Starting TUN", "")
+        val pfd = try { build(c) } catch (ex: IllegalStateException) { throw JuanFatalException(ex.message ?: "VPN setup failed") }
+            ?: throw JuanFatalException("VPN permission missing or revoked")
+        tunFd = pfd.detachFd()   // native code may close it; Java must not double-close (fdsan)
+        if (!live()) throw JuanConnException(JuanFail.CANCELLED, "Cancelled by user")
+        JuanBus.log("TUN: interface up, starting native engine")
+        try { TunEngine.start(this, tunFd, e.socksPort) } catch (ex: IllegalStateException) {
+            if (ex.message?.contains("not bundled") == true) throw JuanFatalException(ex.message ?: "TUN engine missing")
+            throw JuanConnException(JuanFail.TUN_INIT, ex.message ?: "TUN engine failed to start", ex)
+        }
+        Thread.sleep(700)
+        if (!tunIsOpen(tunFd)) throw JuanConnException(JuanFail.TUN_INIT, "The TUN engine stopped right after starting. Open Log and tap Native log for details.")
+        JuanBus.log("TUN: STARTED")
+        post("CONNECTING", "Checking tunnel", "")
+        JuanBus.log("Traffic: running check")
+        if (!e.probe()) throw JuanConnException(JuanFail.TRAFFIC, e.probeError.ifBlank { "The tunnel is up but no traffic passed through it" })
+        JuanBus.log("Traffic: CHECK PASSED")
+    }
+
+    /** Only called after every stage (including the traffic check) passed. */
+    private fun finishConnected(c: JuanCfg, e: TunnelEngine) {
+        t0 = System.currentTimeMillis()
+        post("CONNECTED", if (c.tunnel == "ssh") "SSH tunnel active" else "${c.xProto.uppercase()} tunnel active", "")
+        startStats(e)
+    }
+
+    /** Undo whatever a failed attempt got as far as starting (TUN, packet engine, SSH session, half-open sockets). */
+    private fun abortAttempt() {
+        try { TunEngine.stop() } catch (_: Throwable) {}
+        closeTun()
+        try { engine?.stop() } catch (_: Exception) {}
+        engine = null
     }
 
     private fun build(c: JuanCfg): ParcelFileDescriptor? {
