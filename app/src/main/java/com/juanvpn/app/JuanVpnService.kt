@@ -4,9 +4,15 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -17,6 +23,7 @@ import java.io.File
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** UI <-> service channel. */
 object JuanBus {
@@ -106,6 +113,15 @@ class JuanVpnService : VpnService() {
     private var t0 = 0L
     @Volatile private var stopping = false
 
+    // Auto reconnect (airplane mode, signal loss, wifi <-> mobile data): the old tunnel is replaced by a new session.
+    private val reconnecting = AtomicBoolean(false)
+    @Volatile private var holdTun = false            // keep the old TUN as a blackhole until the new tunnel is ready
+    @Volatile private var lastJson: String? = null
+    @Volatile private var autoReconnect = true
+    private var netCb: ConnectivityManager.NetworkCallback? = null
+    private var airRx: BroadcastReceiver? = null
+    private val nets: MutableSet<Network> = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<Network, Boolean>())
+
     override fun onStartCommand(i: Intent?, f: Int, id: Int): Int {
         if (i?.action == STOP) { stopping = true; teardown(); post("DISCONNECTED", "", ""); stopSelf(); return START_NOT_STICKY }
         val json = i?.getStringExtra(CFG) ?: run { stopSelf(); return START_NOT_STICKY }
@@ -117,6 +133,7 @@ class JuanVpnService : VpnService() {
         ServiceCompat.startForeground(this, NID, notif("Connecting…"),
             if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)
         stopping = false
+        lastJson = json
         // A new worker first waits for a cancelled one to finish, so two workers never run side by side.
         val prev = lastWorker
         val t = Thread {
@@ -163,21 +180,126 @@ class JuanVpnService : VpnService() {
     /** True while this is still the current worker and nobody asked to disconnect. */
     private fun live() = !stopping && Thread.currentThread() === worker && !Thread.currentThread().isInterrupted
 
-    private fun connectFlow(json: String) {
-        try {
-            JuanBus.log("Connection worker started")
-            val c = JuanPolicy.apply(this, JuanCfg.parse(json))
-            JuanPolicy.check(this, c)?.let { throw IllegalStateException(it) }
-            c.validate()?.let { throw IllegalArgumentException(it) }
-            if (!live()) return
-            post("CONNECTING", when (c.tunnel) { "ssh" -> "Opening SSH tunnel"; "ss" -> "Opening Shadowsocks tunnel"; else -> "Opening ${c.xProto.uppercase()} tunnel" }, "")
+    /** One full connection attempt. Returns null when it finished (connected or cancelled), otherwise the failure. */
+    private fun connectOnce(json: String, announce: Boolean): Throwable? = try {
+        if (announce) JuanBus.log("Connection worker started")
+        val c = JuanPolicy.apply(this, JuanCfg.parse(json))
+        autoReconnect = c.reconnect
+        JuanPolicy.check(this, c)?.let { throw IllegalStateException(it) }
+        c.validate()?.let { throw IllegalArgumentException(it) }
+        if (live()) {
+            if (announce) post("CONNECTING", when (c.tunnel) { "ssh" -> "Opening SSH tunnel"; "ss" -> "Opening Shadowsocks tunnel"; else -> "Opening ${c.xProto.uppercase()} tunnel" }, "")
             if (c.tunnel == "ssh") smartConnect(c) else legacyConnect(c)
-        } catch (ex: Throwable) {
-            if (!live()) return
-            val msg = if (ex is JuanFatalException) (ex.message ?: "Connection failed") else JuanSshEngine.friendly(JuanRotation.rootCause(ex))
-            JuanBus.log("Error: $msg")
-            teardown(); post("ERROR", "", msg); stopSelf()
         }
+        null
+    } catch (ex: Throwable) { ex }
+
+    private fun connectFlow(json: String) {
+        val ex = connectOnce(json, true) ?: return
+        if (!live()) return
+        val msg = if (ex is JuanFatalException) (ex.message ?: "Connection failed") else JuanSshEngine.friendly(JuanRotation.rootCause(ex))
+        JuanBus.log("Error: $msg")
+        teardown(); post("ERROR", "", msg); stopSelf()
+    }
+
+    /* ------------------------------------------------------------ auto reconnect */
+
+    private fun registerMonitor() {
+        if (netCb != null) return
+        try {
+            val cm = getSystemService(ConnectivityManager::class.java)
+            val req = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build()
+            nets.clear()
+            val cb = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    val wasEmpty = nets.isEmpty()
+                    nets.add(network)
+                    if (wasEmpty && JuanBus.state != "DISCONNECTED") JuanBus.log("Network: back online")
+                }
+                override fun onLost(network: Network) {
+                    nets.remove(network)
+                    if (nets.isEmpty() && !stopping) {
+                        JuanBus.log("Network: lost (airplane mode or no signal)")
+                        if (JuanBus.state == "CONNECTED") beginReconnect("network lost")
+                    }
+                }
+            }
+            cm.registerNetworkCallback(req, cb)
+            netCb = cb
+            val rx = object : BroadcastReceiver() {
+                override fun onReceive(c: Context, i: Intent) { JuanBus.log("Airplane mode: " + if (i.getBooleanExtra("state", false)) "ON" else "OFF") }
+            }
+            val f = IntentFilter(Intent.ACTION_AIRPLANE_MODE_CHANGED)
+            if (Build.VERSION.SDK_INT >= 33) registerReceiver(rx, f, Context.RECEIVER_NOT_EXPORTED) else registerReceiver(rx, f)
+            airRx = rx
+        } catch (e: Throwable) { JuanBus.log("Network monitor unavailable: ${e.message}") }
+    }
+
+    private fun unregisterMonitor() {
+        try { netCb?.let { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) } } catch (_: Throwable) {}
+        netCb = null
+        try { airRx?.let { unregisterReceiver(it) } } catch (_: Throwable) {}
+        airRx = null
+        nets.clear()
+    }
+
+    /** Replaces the tunnel with a fresh session. The old TUN stays up (blocking traffic) so nothing leaks while waiting. */
+    private fun beginReconnect(reason: String) {
+        if (stopping || !autoReconnect) return
+        val json = lastJson ?: return
+        if (!reconnecting.compareAndSet(false, true)) return
+        JuanBus.log("Reconnect: $reason")
+        holdTun = true
+        post("CONNECTING", if (nets.isEmpty()) "Waiting for network" else "Reconnecting", "")
+        val old = worker
+        val t = Thread {
+            try { reconnectLoop(json) } catch (_: InterruptedException) {} finally { reconnecting.set(false) }
+        }
+        t.name = "JuanReconnect"
+        worker = t; lastWorker = t
+        if (old != null && old !== Thread.currentThread()) old.interrupt()
+        t.start()
+    }
+
+    private fun reconnectLoop(json: String) {
+        statsJob?.cancel(false); statsJob = null
+        try { engine?.stop() } catch (_: Exception) {}
+        engine = null
+        val max = 6
+        var attempt = 0
+        while (live() && attempt < max) {
+            if (nets.isEmpty()) {
+                post("CONNECTING", "Waiting for network", "")
+                if (!awaitNetwork(10 * 60_000L)) break
+                JuanBus.log("Network: ready, reconnecting")
+                Thread.sleep(2500)                 // the radio needs a moment after airplane mode
+                post("CONNECTING", "Reconnecting", "")
+            }
+            attempt++
+            JuanBus.log("Reconnect: attempt $attempt/$max")
+            val ex = connectOnce(json, false)
+            if (!live()) return
+            if (JuanBus.state == "CONNECTED") { JuanBus.log("Reconnect: connected again"); return }
+            JuanBus.log("Reconnect: failed - " + JuanSshEngine.friendly(JuanRotation.rootCause(ex ?: RuntimeException("No connection"))))
+            if (ex is JuanFatalException) break
+            Thread.sleep(minOf(3000L * attempt, 15000L))
+        }
+        if (live()) {
+            JuanBus.log("Reconnect: giving up")
+            teardown(); post("ERROR", "", "Could not reconnect after the network changed"); stopSelf()
+        }
+    }
+
+    private fun awaitNetwork(maxMs: Long): Boolean {
+        val end = System.currentTimeMillis() + maxMs
+        while (live()) {
+            if (nets.isNotEmpty()) return true
+            if (System.currentTimeMillis() > end) return false
+            Thread.sleep(500)
+        }
+        return false
     }
 
     /** Shadowsocks / V2Ray profiles: no proxy combinations to rotate, so the original retry loop is kept. */
@@ -269,6 +391,7 @@ class JuanVpnService : VpnService() {
     /** Starts the packet engine on a tunnel that is already open and proves traffic passes. Throws the stage that failed. */
     private fun bringUp(c: JuanCfg, e: TunnelEngine) {
         post("CONNECTING", "Starting TUN", "")
+        if (holdTun) { TunEngine.stop(); closeTun(); holdTun = false }   // swap the old (blackhole) TUN for the new one
         val pfd = try { build(c) } catch (ex: IllegalStateException) { throw JuanFatalException(ex.message ?: "VPN setup failed") }
             ?: throw JuanFatalException("VPN permission missing or revoked")
         tunFd = pfd.detachFd()   // native code may close it; Java must not double-close (fdsan)
@@ -292,12 +415,15 @@ class JuanVpnService : VpnService() {
         t0 = System.currentTimeMillis()
         post("CONNECTED", if (c.tunnel == "ssh") "SSH tunnel active" else "${c.xProto.uppercase()} tunnel active", "")
         startStats(e)
+        registerMonitor()
     }
 
     /** Undo whatever a failed attempt got as far as starting (TUN, packet engine, SSH session, half-open sockets). */
     private fun abortAttempt() {
-        try { TunEngine.stop() } catch (_: Throwable) {}
-        closeTun()
+        if (!holdTun) {
+            try { TunEngine.stop() } catch (_: Throwable) {}
+            closeTun()
+        }
         try { engine?.stop() } catch (_: Exception) {}
         engine = null
     }
@@ -343,11 +469,10 @@ class JuanVpnService : VpnService() {
             JuanBus.onStats?.invoke(JSONObject().put("up", u).put("down", d).put("upBps", u - lu).put("downBps", d - ld)
                 .put("uptime", (System.currentTimeMillis() - t0) / 1000))
             lu = u; ld = d
-            if (!e.alive() && !stopping) {
+            if (!e.alive() && !stopping && !reconnecting.get()) {
                 JuanBus.log("Tunnel: connection lost")
-                teardown()
-                post("ERROR", "", "Tunnel connection dropped")
-                stopSelf()
+                if (autoReconnect && lastJson != null) beginReconnect("connection lost")
+                else { teardown(); post("ERROR", "", "Tunnel connection dropped"); stopSelf() }
             }
         }, 1, 1, TimeUnit.SECONDS)
     }
@@ -359,7 +484,8 @@ class JuanVpnService : VpnService() {
         val safeNotification = when (s) {
             "CONNECTED" -> "Connected · VPN active"
             "CONNECTING" -> when {
-                d.contains("retry", ignoreCase = true) -> "Reconnecting…"
+                d.contains("Waiting for network", ignoreCase = true) -> "Waiting for network…"
+                d.contains("retry", ignoreCase = true) || d.contains("reconnect", ignoreCase = true) -> "Reconnecting…"
                 d.contains("SSH", ignoreCase = true) -> "Connecting · SSH"
                 d.contains("VMESS", ignoreCase = true) -> "Connecting · VMess"
                 d.contains("VLESS", ignoreCase = true) -> "Connecting · VLESS"
@@ -387,6 +513,8 @@ class JuanVpnService : VpnService() {
 
     @Synchronized private fun teardown() {
         stopping = true
+        holdTun = false
+        unregisterMonitor()
         statsJob?.cancel(true); statsJob = null
         // Stop the native engine only after a successful native start.
         TunEngine.stop()

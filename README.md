@@ -125,3 +125,9 @@ SSH profiles with several proxies, SNI names or payloads now rotate automaticall
 - Failures are logged by kind: DNS, TCP timeout/refused, TLS, 301/302, 400/403, 5xx, invalid WebSocket handshake, proxy closed, SSH banner/timeout, SSH auth, TUN init, traffic check.
 - Payloads are sent exactly as written (custom payloads, `[split]`, `[crlf]`, `[rotate=..]`, large Content-Length all unchanged). They are only refused when oversize (16 KB, 32 parts, 20 s of delay), contain a NUL byte, have a malformed request line, or contradict themselves (two different Content-Length values, or Content-Length with Transfer-Encoding). A refused combination is skipped and logged; nothing is rewritten.
 - Disconnect cancels any attempt in progress, and a new connect waits for the cancelled worker, so two workers never run together.
+
+## Version 2.9.0
+
+- **Reconnect after airplane mode / network change.** While connected the service watches the network. When the network is lost (airplane mode on, no signal) or the SSH connection drops (wifi <-> mobile data), JUAN VPN waits for the network, then opens a brand-new tunnel session by itself, using the last working proxy combination first. The old TUN stays up as a blackhole in the meantime, so no traffic leaks outside the VPN while waiting. It tries up to 6 times, then reports an error. Controlled by Settings -> Auto reconnect (on by default); turning it off restores the old behaviour (error and stop).
+- Log lines: `Airplane mode: ON/OFF`, `Network: lost`, `Network: back online`, `Reconnect: attempt n/6`, `Reconnect: connected again` (red for lost/failed, green for back online/connected).
+- **Telegram:** *Join our Telegram* card on Home, a menu entry and a Help entry, opening https://t.me/hometechnol.

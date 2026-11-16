@@ -14,6 +14,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.net.Uri
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -242,6 +243,12 @@ class JuanWebActivity : Activity() {
         @JavascriptInterface fun deviceId(): String = DeviceId.get(applicationContext)
         @JavascriptInterface fun simOperator(): String =
             (getSystemService(android.telephony.TelephonyManager::class.java)?.simOperator ?: "")
+        /** Opens https links only (used for the Telegram button). */
+        @JavascriptInterface fun openUrl(url: String) = runOnUiThread {
+            if (!url.startsWith("https://")) return@runOnUiThread
+            try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            catch (_: Exception) { Toast.makeText(this@JuanWebActivity, "No app can open this link", Toast.LENGTH_SHORT).show() }
+        }
         @JavascriptInterface fun copyText(text: String) = runOnUiThread {
             (getSystemService(android.content.ClipboardManager::class.java))
                 ?.setPrimaryClip(android.content.ClipData.newPlainText("JUAN VPN", text))

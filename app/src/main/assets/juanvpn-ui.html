@@ -79,7 +79,7 @@ details{border-top:1px solid var(--ln);padding:12px 16px}details:first-of-type{b
 <header><div class="bar"><button class="ib" id="lead" aria-label="Menu"></button><h1 id="ttl">JUAN VPN</h1><button class="ib" id="gear" aria-label="Settings"></button><button class="ib" id="quick" aria-label="Config actions" title="Config actions"></button></div><nav class="tabs" id="tabs"></nav></header>
 <main id="v"></main><input type="file" id="fi" accept=".hj,.HJ,.json,application/json" hidden><div id="md"><div class="sheet" id="sh"></div></div><div id="toast"></div>
 <script>
-const VER='2.7.1',$=s=>document.querySelector(s);
+const VER='2.9.0',$=s=>document.querySelector(s);
 const I={menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',back:'<path d="M15 5l-7 7 7 7"/>',gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',plus:'<path d="M12 5v14M5 12h14"/>',ch:'<path d="M9 5l7 7-7 7"/>',ed:'<path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/>'};
 const ic=(n,c='')=>`<svg class="${c}" viewBox="0 0 24 24">${I[n]}</svg>`;
 const SECRET=['pass','key','keyPass','pPass','xSecret'];
@@ -113,7 +113,7 @@ stats(o){STAT=o||{};if(cur==='home')render()},log:m=>log(m,false),apps(a){appsLi
 const LC=l=>{const t=String(l).replace(/^\[?\d{2}:\d{2}:\d{2}\]?\s+/,'');if(/^Native log/.test(t))return'';
 if(/^State: ERROR|^Error:|\bfail(ed|ure)?\b|refused|rejected|denied|dropped|\blost\b|unreachable|timed out|timeout|cannot|could not|unable|invalid|bad data|closed by foreign|stopped right|revoked|HOST KEY CHANGED|not bundled|Unsupported|not supported/i.test(t))return'bad';
 if(/warning/i.test(t))return'warn';
-if(/^State: CONNECTED|authenticated as|handshake OK|certificate verified|packet engine started|transport OK|forwarder on|SOCKS5 CONNECT OK/i.test(t))return'ok';return''};
+if(/^State: CONNECTED|authenticated as|handshake OK|certificate verified|packet engine started|transport OK|forwarder on|SOCKS5 CONNECT OK|Network: back online|Network: ready|Reconnect: connected again|Combination successful|Traffic: CHECK PASSED|TUN: STARTED/i.test(t))return'ok';return''};
 const logHtml=()=>LOG.length?LOG.map(l=>`<span class="ll ${LC(l)}">${esc(redactLockedLog(l))}</span>`).join(''):'No events yet.';
 
 /* share links: vless:// trojan:// ss:// */
@@ -174,7 +174,8 @@ ${HJ.notes&&String(HJ.notes).trim()?card('Message from config owner',`<div class
 ${card('',go('tunnel',[sum(),'Tunnel type and connect-from']))}
 ${S._hjLocked?'':S.tunnel!=='ssh'?'':payOn()?card('Payload',`<div class="fld" style="border:0"><textarea data-k="payload" spellcheck="false" autocapitalize="off" style="min-height:110px">${esc(S.payload)}</textarea></div>`+edRows()):(edRows()?card('',edRows()):'')}
 ${S.tunnel==='ssh'?card('',go('ssh',['SSH server',S._hjLocked?'Locked configuration':(S.user&&S.sshHost)?S.user+'@'+S.sshHost+':'+S.sshPort:'Not set'])):card('',go('xserver',[XN[S.tunnel]+' server',xdesc()]))}
-${card('',`<label class="row"><div class="t"><b>${S._hjLocked?'DNS settings locked':`DNS (${S.dnsMode==='auto'?'Automatic':esc(S.dns1)})`}</b><small>${S._hjLocked?'Details hidden':S.dnsFwd?'Forwarded through tunnel':'Resolved locally'}</small></div></label>`+go('dns',['DNS and routing',S._hjLocked?'Locked':'Servers, routes, kill switch']))}`},
+${card('',`<label class="row"><div class="t"><b>${S._hjLocked?'DNS settings locked':`DNS (${S.dnsMode==='auto'?'Automatic':esc(S.dns1)})`}</b><small>${S._hjLocked?'Details hidden':S.dnsFwd?'Forwarded through tunnel':'Resolved locally'}</small></div></label>`+go('dns',['DNS and routing',S._hjLocked?'Locked':'Servers, routes, kill switch']))}
+${card('',`<button class="row" data-act="tg" style="border:0;width:100%;text-align:left"><div class="t"><b>✈ Join our Telegram</b><small>Updates, configs and support · t.me/hometechnol</small></div></button>`)}`},
 
 tunnel(){return card('Tunnel type',rad('tunnel','ssh','Secure Shell (SSH)')+rad('tunnel','v2','V2Ray / Xray (VMess, VLESS, Trojan)')+rad('tunnel','hy','Hysteria',1,'Needs QUIC engine')+rad('tunnel','ss','Shadowsocks'))
 +(S.tunnel==='ssh'?card('Connect from',Object.entries(FROM).map(([k,l])=>rad('from',k,l)).join(''))
@@ -213,7 +214,7 @@ apps(){return card('Mode',`<div class="fld"><select data-k="appMode" data-re><op
 +(S.appMode==='off'?'':card('Installed apps',appsList.length?appsList.map(a=>`<label class="ap"><div class="t"><b>${esc(a.name)}</b><small>${esc(a.pkg)}</small></div><input type="checkbox" class="sw" data-app="${esc(a.pkg)}" ${S.apps.includes(a.pkg)?'checked':''}></label>`).join(''):'<div class="fld"><div class="h" style="margin:0">No app list yet. The Android layer supplies installed apps when this screen opens.</div></div>'))},
 
 settings(){return card('Device',go('deviceid',['Device ID',deviceId()]))+card('Tunnel',go('tunnel',[XN[S.tunnel],sum()])+go('ssh',['SSH server','Host, auth, host key'])+go('xserver',['V2Ray / Shadowsocks server','Address, UUID or password, transport'])+go('dns',['DNS and routing','']))
-+card('Reliability',sw('Auto reconnect','reconnect','',1)+(S.reconnect?f('Delay (seconds)','delay',{m:'numeric'})+f('Max retries','retries',{m:'numeric',h:'Stops early on bad credentials or an unreachable server.'}):'')+sw('CPU wake lock','wake','Fewer drops with the screen off. Uses more battery.')+`<button class="row" data-act="batt"><div class="t"><b>Battery optimization</b><small>Exempt JUAN VPN so it stays alive</small></div>${ic('ch','ch')}</button>`)
++card('Reliability',sw('Auto reconnect','reconnect','Reconnects after airplane mode, signal loss or a network switch.',1)+(S.reconnect?f('Delay (seconds)','delay',{m:'numeric'})+f('Max retries','retries',{m:'numeric',h:'Stops early on bad credentials or an unreachable server.'}):'')+sw('CPU wake lock','wake','Fewer drops with the screen off. Uses more battery.')+`<button class="row" data-act="batt"><div class="t"><b>Battery optimization</b><small>Exempt JUAN VPN so it stays alive</small></div>${ic('ch','ch')}</button>`)
 +card('Notifications',`<button class="row" data-act="notif"><div class="t"><b>Allow notifications</b><small>Needed for the Disconnect action on Android 13+</small></div>${ic('ch','ch')}</button>`)
 +card('Cloud server',`<div class="fld"><label>Your JUAN cloud server (https)</label><input id="cloudEndpoint" type="url" value="${esc(localStorage.getItem('juan.cloudEndpoint')||'')}" placeholder="https://juan-cloud.yourname.workers.dev" autocapitalize="off" spellcheck="false"><div class="h">Used by Save to cloud and by Import from cloud key. Deploy the server from the cloud-server folder (see its README).</div></div><div class="btns" style="padding:0 16px 14px;border:0"><button class="btn sm pri" data-act="saveCloudEndpoint">Save</button><button class="btn sm" data-act="pingCloud">Test server</button></div>`)},
 
@@ -262,21 +263,21 @@ tools(){return card('Target',f('Host or IP','tHost',{ph:S.sshHost||'example.com'
 +card('Tests',[['dns','DNS lookup'],['reach','Server reachability'],['ssh','SSH port check'],['proxy','Proxy connectivity'],['tls','TLS handshake'],['ip','IP information'],['diag','Full diagnostics']].map(([k,l])=>`<button class="row" data-tool="${k}"><div class="t"><b>${l}</b></div>${ic('ch','ch')}</button>`).join(''))
 +card('Result',`<pre>${esc(toolOut||'Run a test to see the result.')}</pre>`)},
 
-help(){const h=[['Add an SSH server','Open SSH server, enter host, port, username and password or key.'],['HTTP or SOCKS5 proxy','Tunnel type → Connect from. Choose the proxy kind, then fill host and port under Remote proxy.'],['TLS and SNI','Enable TLS proxy, set the server name the certificate was issued for. Certificates are always verified.'],['Server key','Server keys are accepted automatically. There is nothing to confirm when you connect.'],['Import profiles','Servers → Import. Pick a JUAN .HJ file or a legacy JSON profile. Locked .HJ files require the owner password.'],['Common errors','Auth failed: wrong credentials. Timeout: host or port blocked. Handshake failed: SNI or proxy mismatch.']];
+help(){const h=[['Add an SSH server','Open SSH server, enter host, port, username and password or key.'],['HTTP or SOCKS5 proxy','Tunnel type → Connect from. Choose the proxy kind, then fill host and port under Remote proxy.'],['TLS and SNI','Enable TLS proxy, set the server name the certificate was issued for. Certificates are always verified.'],['Server key','Server keys are accepted automatically. There is nothing to confirm when you connect.'],['Join Telegram','Open the menu → Join Telegram, or tap the Telegram card on Home: https://t.me/hometechnol'],['Network changes','If you switch airplane mode on and off, or the signal drops, JUAN VPN waits for the network and reconnects by itself (Settings → Auto reconnect).'],['Import profiles','Servers → Import. Pick a JUAN .HJ file or a legacy JSON profile. Locked .HJ files require the owner password.'],['Common errors','Auth failed: wrong credentials. Timeout: host or port blocked. Handshake failed: SNI or proxy mismatch.']];
 return card('Guides',h.map(([a,b])=>`<details><summary>${a}</summary><p>${b}</p></details>`).join(''))},
 
 about(){return card('',`<div class="st" style="display:block"><b style="font-size:22px">JUAN VPN</b><div style="color:var(--ac);font-size:13px">Version ${VER}</div><p style="color:#c3cfe2">Use only with servers and networks you own or are authorised to use.</p></div>`+['Privacy policy','Terms of service','Support','Open-source licences'].map(x=>`<div class="row"><div class="t"><b>${x}</b></div></div>`).join(''))}
 };
 const T={importsel:'Select File',home:'JUAN VPN',tunnel:'Tunnel type',xserver:'Proxy server',ssh:'SSH server',tls:'Proxy and TLS',payload:'Payload',dns:'DNS and routing',apps:'Apps filter',settings:'Settings',servers:'Servers',exporter:'Config Exporter',deviceid:'Device ID',log:'JUAN VPN',tools:'JUAN VPN',help:'JUAN VPN',about:'About'};
 const TAB=['home','log','tools','help'],PAR={importsel:'servers',deviceid:'home',exporter:'servers',apps:'dns',tunnel:'home',xserver:'home',ssh:'home',tls:'home',payload:'home',dns:'home'};
-const MENU=[['home','Home'],['servers','Servers'],['importsel','Import config'],['ssh','SSH server'],['xserver','V2Ray / Shadowsocks server'],['tunnel','Tunnel type'],['payload','Payload'],['dns','DNS and routing'],0,['log','Logs'],['tools','Tools'],['deviceid','Device ID'],['settings','Settings'],['help','Help'],['about','About']];
+const MENU=[['home','Home'],['servers','Servers'],['importsel','Import config'],['ssh','SSH server'],['xserver','V2Ray / Shadowsocks server'],['tunnel','Tunnel type'],['payload','Payload'],['dns','DNS and routing'],0,['log','Logs'],['tools','Tools'],['deviceid','Device ID'],['settings','Settings'],['help','Help'],['tg','Join Telegram'],['about','About']];
 
 function render(){const y=scrollY;const hiddenWhenLocked=['exporter','tunnel','xserver','ssh','tls','payload','dns','tools'];$('#v').innerHTML=S._hjLocked&&hiddenWhenLocked.includes(cur)?card('Configuration locked','<div class="fld">Server details, host names, payloads and credentials are hidden. This profile can connect, but its settings cannot be viewed or edited.</div>'):V[cur]();$('#ttl').textContent=T[cur];if(S._hjLocked)$('#v').querySelectorAll('input:not(#fi),textarea,select').forEach(x=>x.disabled=true);else{const locks={payload:['payload'],remoteProxy:['pHost','pPort'],proxyAuth:['pUser','pPass'],sni:['sni','xSni'],sshHostPort:['sshHost','sshPort'],sshAuth:['user','pass','key','keyPass'],v2Editor:['xProto'],v2ServerPort:['xHost','xPort'],v2Password:['xSecret'],disableUserOverwrite:['tunnel','xHost','xPort','sshHost','sshPort','xProto'],dnsResolver:['dnsMode','dns1','dns2'],dnsttSettings:['routes','excl']};Object.entries(locks).forEach(([k,fields])=>{if(S._imported&&HJ[k])fields.forEach(f=>$('#v').querySelectorAll(`[data-k="${f}"]`).forEach(x=>x.disabled=true))})}
 const tab=TAB.includes(cur),sub=!tab&&cur!=='servers'&&cur!=='settings'&&cur!=='about'||PAR[cur];
 $('#tabs').style.display=tab?'flex':'none';$('#tabs').innerHTML=TAB.map(t=>`<button class="${t===cur?'on':''}" data-go="${t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join('');
 $('#lead').innerHTML=ic(tab?'menu':'back');$('#lead').dataset.mode=tab?'menu':'back';$('#gear').innerHTML=ic('gear');$('#gear').style.visibility=tab?'visible':'hidden';$('#quick').innerHTML=ic('plus');$('#quick').style.visibility=tab?'visible':'hidden';scrollTo(0,y)}
 function nav(n){cur=n;document.body.classList.remove('open');if(n==='apps'&&B()&&B().listApps)B().listApps();render();scrollTo(0,0)}
-$('#dr').innerHTML=`<div class="hd"><b>JUAN VPN</b><small>Version ${VER}</small></div>`+MENU.map(m=>m?`<button data-go="${m[0]}">${m[1]}</button>`:'<hr>').join('');
+$('#dr').innerHTML=`<div class="hd"><b>JUAN VPN</b><small>Version ${VER}</small></div>`+MENU.map(m=>m?(m[0]==='tg'?`<button data-act="tg">✈ ${m[1]}</button>`:`<button data-go="${m[0]}">${m[1]}</button>`):'<hr>').join('');
 $('#dim').onclick=()=>document.body.classList.remove('open');
 $('#lead').onclick=()=>$('#lead').dataset.mode==='menu'?document.body.classList.add('open'):nav(PAR[cur]||'home');
 $('#gear').onclick=()=>nav('settings');$('#quick').onclick=()=>ACT.quick();
@@ -370,6 +371,7 @@ else if(kind==='dl'){unmodal();JuanUI.importFile(r.text)}};
 JuanUI.cloudImportLink=u=>{nav('servers');cloudFetchStart(u)};
 
 const ACT={
+tg(){if(B()&&B().openUrl)B().openUrl('https://t.me/hometechnol');else window.open('https://t.me/hometechnol','_blank')},
 copyId(){B()&&B().copyText?(B().copyText(deviceId()),toast('Device ID copied')):toast('Available inside the Android app')},
 shareId(){B()&&B().shareText?B().shareText('My JUAN VPN Device ID: '+deviceId()):toast('Available inside the Android app')},
 useSim(){const c=B()&&B().simOperator?B().simOperator():'';if(!c){toast('No SIM detected');return}HJ.operatorCodes=(String(HJ.operatorCodes||'').trim()?HJ.operatorCodes.trim()+'\n':'')+c;saveHJ();render()},
