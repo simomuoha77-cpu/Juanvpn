@@ -63,7 +63,12 @@ jobs:
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
       - name: Build release APK (shrunk/obfuscated, self-signed)
-        run: gradle assembleRelease --stacktrace
+        run: |
+          gradle assembleRelease --stacktrace || {
+            echo "=== R8 suggested rules (missing_rules.txt) ==="
+            cat app/build/outputs/mapping/release/missing_rules.txt 2>/dev/null || echo "(no missing_rules.txt)"
+            exit 1
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: juan-vpn-debug-apk
