@@ -35,7 +35,7 @@ object JuanCloud {
      * Optional: put your cloud server here (for example "https://juan-cloud.yourname.workers.dev") and rebuild.
      * Then every user of your app can import cloud keys without setting a server in Settings.
      */
-    const val DEFAULT_SERVER = ""
+    const val DEFAULT_SERVER = "https://juanvpn.juanvpn.workers.dev"
 
     /** Offline config code: the whole (already locked or unlocked) .HJ text, compressed. No server involved. */
     fun encodeCode(text: String): String {

@@ -1,12 +1,12 @@
+
 name = "juanvpn"
 main = "worker.js"
 compatibility_date = "2024-11-01"
 
-# Run:  wrangler d1 create juan-cloud   then paste the database_id below.
 [[d1_databases]]
 binding = "DB"
-database_name = "juan-cloud"
-database_id = "<paste-the-id-here>"
+database_name = "juanvpn"
+database_id = "5b657bd4-e3a2-4082-99d8-9fa02b19d3a0"
 
 [vars]
 NORMAL_TTL_DAYS = "180"
