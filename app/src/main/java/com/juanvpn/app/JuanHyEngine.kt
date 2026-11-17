@@ -54,11 +54,13 @@ class JuanHyEngine(
 
         val end = System.currentTimeMillis() + 20000
         var ok = false
-        while (System.currentTimeMillis() < end) {
-            if (!proc.alive()) break
-            if (JuanProc.portOpen(port)) { ok = true; break }
-            Thread.sleep(250)
-        }
+        try {
+            while (System.currentTimeMillis() < end) {
+                if (!proc.alive()) break
+                if (JuanProc.portOpen(port)) { ok = true; break }
+                Thread.sleep(250)
+            }
+        } catch (e: InterruptedException) { stop(); throw e }     // disconnect pressed: do not leave the program running
         try { f.delete() } catch (_: Exception) {}     // the password is no longer needed on disk
         if (!ok) {
             val why = explain(proc.lines())
@@ -89,7 +91,7 @@ class JuanHyEngine(
         return when {
             "auth" in t && ("fail" in t || "error" in t || "denied" in t) -> "Hysteria login failed. Check the password."
             "certificate" in t || "x509" in t || ("tls" in t && "verify" in t) -> "The TLS certificate check failed. Check the SNI, or turn on Allow insecure."
-            "timeout" in t || "no recent network activity" in t || "deadline" in t -> "The Hysteria server did not answer. Check the address and port, and that UDP is allowed on this network."
+            "timeout" in t || "no recent network activity" in t || "deadline" in t -> "No answer from the server. It may not be a Hysteria 2 server (UDP Custom and Hysteria 1 are different), or UDP is blocked here."
             "no such host" in t || "lookup" in t -> "Could not resolve the Hysteria server address."
             t.isBlank() -> "The Hysteria engine stopped before it connected."
             else -> "Hysteria could not connect: " + (lines.lastOrNull { it.contains('\t') }?.split('\t')?.getOrNull(2) ?: lines.last()).take(100)
@@ -134,11 +136,13 @@ class JuanDnsttRunner(
         proc.start(listOf(bin.path, flag, c.dnsResolver.ifBlank { def }, "-pubkey-file", key.path, c.dnsDomain, "127.0.0.1:$port"), ctx)
         val end = System.currentTimeMillis() + 8000
         var ok = false
-        while (System.currentTimeMillis() < end) {
-            if (!proc.alive()) break
-            if (JuanProc.portOpen(port)) { ok = true; break }
-            Thread.sleep(200)
-        }
+        try {
+            while (System.currentTimeMillis() < end) {
+                if (!proc.alive()) break
+                if (JuanProc.portOpen(port)) { ok = true; break }
+                Thread.sleep(200)
+            }
+        } catch (e: InterruptedException) { close(); throw e }
         try { key.delete() } catch (_: Exception) {}
         if (!ok) {
             val last = proc.lines().lastOrNull { it.isNotBlank() }?.take(100) ?: "the engine stopped"

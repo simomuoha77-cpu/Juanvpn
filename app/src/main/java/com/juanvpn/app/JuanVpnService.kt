@@ -183,11 +183,13 @@ class JuanVpnService : VpnService() {
         var attempt = 0
         while (true) {
             attempt++
+            if (!live()) return null                       // a newer connect (or a disconnect) took over
             val eng = makeEngine(c)
             engine = eng
             try { eng.start(); return eng } catch (ex: Throwable) {
                 eng.stop()
-                if (stopping || Thread.currentThread().isInterrupted) return null
+                // An interrupt clears the thread flag, so also check the exception and whether this is still the current worker.
+                if (ex is InterruptedException || !live()) return null
                 if (ex is JuanFatalException || attempt >= max || !JuanSshEngine.transient(ex)) throw ex
                 val wait = minOf(1500L * attempt, c.delay * 1000L) + rnd.nextInt(600)
                 JuanBus.log("Attempt $attempt failed: ${JuanSshEngine.friendly(ex.cause ?: ex)} Retrying in ${"%.1f".format(wait / 1000.0)}s…")
