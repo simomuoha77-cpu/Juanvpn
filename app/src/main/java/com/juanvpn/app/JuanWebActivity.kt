@@ -56,7 +56,17 @@ class JuanWebActivity : Activity() {
             setBackgroundColor(0xff0a111f.toInt())
             settings.javaScriptEnabled = true; settings.domStorageEnabled = true
             settings.allowContentAccess = false
+            settings.allowFileAccess = false                       // bundled page still loads from file:///android_asset
+            @Suppress("DEPRECATION") run {
+                settings.allowFileAccessFromFileURLs = false; settings.allowUniversalAccessFromFileURLs = false
+            }
+            settings.javaScriptCanOpenWindowsAutomatically = false
+            settings.setSupportMultipleWindows(false)
+            settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
             webViewClient = object : WebViewClient() {
+                // The JavaScript bridge must only ever be reachable from the bundled page, never from a remote site.
+                override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean =
+                    request?.url?.toString()?.startsWith("file:///android_asset/") != true
                 override fun onPageFinished(view: WebView?, url: String?) { pageReady = true; flushImport() }
             }
             addJavascriptInterface(Bridge(), "JuanBridge")
@@ -312,14 +322,41 @@ class JuanWebActivity : Activity() {
             exportQueue.clear(); exportQueue.add(name1 to text1); exportQueue.add(name2 to text2); startNextExport()
         }
         @JavascriptInterface fun makeHJ(config: String, password: String): String = try {
-            HJConfig.encrypt(config, password)
+            HJConfig.encrypt(this@JuanWebActivity, config, password)
         } catch (e: Exception) { "ERROR:${e.message ?: "Could not encrypt HJ config"}" }
+        /** Export for specific phones (keysCsv = base64 device keys from deviceKeyInfo), optional password, expiry (epoch s), import limit. */
+        @JavascriptInterface fun makeHJForDevice(config: String, password: String, keysCsv: String, expiresSec: Long, maxImports: Int): String = try {
+            HJConfig.encryptFor(this@JuanWebActivity, config, password.ifEmpty { null },
+                keysCsv.split(',').map { it.trim() }.filter { it.isNotEmpty() }, expiresSec, maxImports)
+        } catch (e: Exception) { "ERROR:${e.message ?: "Could not encrypt HJ config"}" }
+        /** This phone's device-binding public key: {"supported":bool,"key":"base64","id":"hex"}. The private key never leaves the Keystore. */
+        @JavascriptInterface fun deviceKeyInfo(): String = try {
+            val k = HJDeviceKey.publicKey()
+            JSONObject().put("supported", HJDeviceKey.supported && k != null)
+                .put("key", k?.let { android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP) } ?: "")
+                .put("id", HJDeviceKey.fingerprint() ?: "").toString()
+        } catch (e: Exception) { "ERROR:${e.message ?: "Device key unavailable"}" }
+        /** Deletes this phone's device key. Files bound only to it can never be opened here again. */
+        @JavascriptInterface fun deviceRevoke(): String { HJDeviceKey.revoke(); return "ok" }
+        /** Blocks screenshots and screen recording while a sensitive screen is open (HJ unlock). */
+        @JavascriptInterface fun setSecure(on: Boolean) = runOnUiThread {
+            if (on) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+            else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        }
         @JavascriptInterface fun makeUnlockedHJ(config: String): String = try {
             HJConfig.unlocked(config)
         } catch (e: Exception) { "ERROR:${e.message ?: "Could not create HJ config"}" }
         @JavascriptInterface fun openHJ(text: String, password: String): String = try {
-            val box = JSONObject(text)
-            if (box.optBoolean("locked", false)) HJConfig.decrypt(text, password) else HJConfig.open(text)
+            if (HJConfig.isHJ01(text)) HJConfig.openHJ01(this@JuanWebActivity, text, password)
+            else {
+                val box = JSONObject(text)
+                if (box.optBoolean("locked", false)) {
+                    // Legacy JSON container: import only, with the same wrong-password delays.
+                    HJGuard.checkAllowed(this@JuanWebActivity, "legacy")
+                    try { HJConfig.decryptLegacy(text, password).also { HJGuard.succeeded(this@JuanWebActivity, "legacy") } }
+                    catch (e: javax.crypto.AEADBadTagException) { HJGuard.failed(this@JuanWebActivity, "legacy"); throw e }
+                } else HJConfig.open(text)
+            }
         } catch (e: Exception) { "ERROR:${e.message ?: "Could not open HJ config"}" }
         @JavascriptInterface fun shareFile(name: String, text: String) = runOnUiThread {
             try {

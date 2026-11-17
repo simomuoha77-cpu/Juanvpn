@@ -154,3 +154,16 @@ jobs:
           name: juan-vpn-release-apk
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
+  security-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: HJ01 security regression tests
+        run: |
+          set -e
+          curl -fsSL -o /tmp/bcprov.jar https://repo1.maven.org/maven2/org/bouncycastle/bcprov-jdk18on/1.78.1/bcprov-jdk18on-1.78.1.jar
+          BCJAR=/tmp/bcprov.jar sh security-tests/run.sh

@@ -17,12 +17,23 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+        // Real release key, kept OUTSIDE the repository: set these environment variables in the build (for example
+        // GitHub Actions secrets). Without them the build falls back to the debug key exactly as before.
+        // NOTE: changing the signing key means phones that already have the app must uninstall it first.
+        System.getenv("JUAN_KEYSTORE")?.let { path ->
+            create("release") {
+                storeFile = file(path)
+                storePassword = System.getenv("JUAN_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("JUAN_KEY_ALIAS")
+                keyPassword = System.getenv("JUAN_KEY_PASSWORD")
+            }
+        }
     }
     buildTypes {
         getByName("release") {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("debug") // no Play Console release key is available here
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
         getByName("debug") { isMinifyEnabled = false }

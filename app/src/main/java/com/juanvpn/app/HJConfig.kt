@@ -1,5 +1,6 @@
 package com.juanvpn.app
 
+import android.content.Context
 import android.util.Base64
 import org.json.JSONObject
 import org.bouncycastle.jce.provider.BouncyCastleProvider
@@ -11,11 +12,13 @@ import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * Authenticated JUAN HJ container.
+ * JUAN HJ containers.
  *
- * Version 2 authenticates all security-relevant envelope metadata as GCM AAD.
- * Version 1 remains readable for backwards compatibility, but all new locked
- * exports use version 2.
+ *  - HJ01 (new, binary, see HJ01.java): envelope encryption, Argon2id, HKDF, per-file random data key,
+ *    password and/or device/recipient key slots. Every new locked export uses this. It is stored as the text
+ *    "HJ01." + base64url so the existing export/share/cloud/config-code paths keep working unchanged.
+ *  - Legacy JSON containers (versions 1 and 2, PBKDF2 + AES-GCM): IMPORT ONLY. Nothing new is ever written in
+ *    those formats, and they are never used to open or weaken an HJ01 file.
  */
 object HJConfig {
     private const val FORMAT = "JUAN-HJ"
@@ -32,24 +35,77 @@ object HJConfig {
             .put("locked", false).put("config", config).toString(2)
     }
 
-    fun encrypt(configJson: String, password: String): String {
-        require(password.length >= 10) { "Use a configuration password of at least 10 characters" }
-        val salt = ByteArray(16).also(random::nextBytes)
-        val iv = ByteArray(12).also(random::nextBytes)
-        val saltText = Base64.encodeToString(salt, Base64.NO_WRAP)
-        val ivText = Base64.encodeToString(iv, Base64.NO_WRAP)
-        val aad = authenticatedHeader(VERSION, ITERATIONS, saltText, ivText)
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, derive(password, salt, ITERATIONS), GCMParameterSpec(128, iv))
-        cipher.updateAAD(aad.toByteArray(Charsets.UTF_8))
-        val encrypted = cipher.doFinal(JSONObject(configJson).toString().toByteArray(Charsets.UTF_8))
-        return JSONObject().put("format", FORMAT).put("version", VERSION).put("locked", true)
-            .put("kdf", "PBKDF2-HMAC-SHA256").put("iterations", ITERATIONS)
-            .put("salt", saltText).put("iv", ivText)
-            .put("ciphertext", Base64.encodeToString(encrypted, Base64.NO_WRAP)).toString(2)
+    fun isHJ01(text: String): Boolean = text.trimStart().startsWith(HJ01.PREFIX)
+
+    private fun armor(bytes: ByteArray) = HJ01.PREFIX +
+        Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+
+    private fun dearmor(text: String): ByteArray = try {
+        Base64.decode(text.trim().removePrefix(HJ01.PREFIX).filter { !it.isWhitespace() }, Base64.URL_SAFE)
+    } catch (_: IllegalArgumentException) { throw IllegalArgumentException("This HJ file is damaged") }
+
+    /** Password-protected HJ01 export (the only locked format this app writes). Verified before it is returned. */
+    fun encrypt(ctx: Context, configJson: String, password: String): String =
+        encryptFor(ctx, configJson, password, emptyList(), 0L, 0)
+
+    /**
+     * HJ01 export with any mix of: a password, recipient/device public keys (base64 X.509, see HJDeviceKey),
+     * an expiry (epoch seconds, 0 = none) and an import limit (0 = unlimited).
+     */
+    fun encryptFor(ctx: Context, configJson: String, password: String?, recipientKeys: List<String>,
+                   expiresSec: Long, maxImports: Int): String {
+        val hasPw = !password.isNullOrEmpty()
+        if (hasPw) require(password!!.length >= 10) { "Use a configuration password of at least 10 characters" }
+        require(hasPw || recipientKeys.isNotEmpty()) { "Set a password or choose a recipient device" }
+        val plain = JSONObject(configJson).toString().toByteArray(Charsets.UTF_8)
+        val o = HJ01.Options()
+        if (hasPw) {
+            o.password = password!!.toCharArray()
+            val a = HJGuard.argon(ctx)
+            o.memKiB = a.memKiB; o.iters = a.iters; o.lanes = a.lanes
+        }
+        recipientKeys.forEach { o.recipients.add(Base64.decode(it.trim(), Base64.DEFAULT)) }
+        o.expiresSec = expiresSec; o.maxImports = maxImports
+        return try {
+            armor(HJ01.encrypt(plain, o))
+        } catch (e: HJ01.HJException) {
+            throw IllegalArgumentException(e.message)
+        } finally {
+            plain.fill(0); o.password?.fill('\u0000')
+        }
     }
 
-    fun decrypt(containerText: String, password: String): String {
+    /**
+     * Opens an HJ01 file. Order: structure check -> attempt limiter -> unwrap the file key -> GCM verifies the whole
+     * header and payload -> import limit -> schema check. A wrong password or edited file yields no data.
+     */
+    fun openHJ01(ctx: Context, text: String, password: String): String {
+        val bytes = dearmor(text)
+        val info = try { HJ01.inspect(bytes) } catch (e: HJ01.HJException) { throw IllegalArgumentException(e.message) }
+        val fid = info.fileId.joinToString("") { "%02x".format(it) }
+        HJGuard.checkAllowed(ctx, fid)
+        val cred = HJ01.Credentials()
+        val pw = password.toCharArray()
+        if (pw.isNotEmpty()) cred.password(pw)
+        cred.device(HJDeviceKey.get())
+        val result = try {
+            HJ01.decrypt(bytes, cred, System.currentTimeMillis() / 1000)
+        } catch (e: HJ01.AuthException) {
+            HJGuard.failed(ctx, fid); throw IllegalArgumentException(e.message)
+        } catch (e: HJ01.HJException) {
+            throw IllegalArgumentException(e.message)
+        } finally { pw.fill('\u0000') }
+        try {
+            HJGuard.succeeded(ctx, fid)
+            HJGuard.consumeImport(ctx, fid, result.maxImports)
+            val obj = JSONObject(String(result.plaintext, Charsets.UTF_8))
+            require(obj.length() > 0) { "HJ file has no configuration" }
+            return obj.toString()
+        } finally { result.plaintext.fill(0) }
+    }
+
+    /** Legacy JSON containers (v1/v2). Import only. */
+    fun decryptLegacy(containerText: String, password: String): String {
         val box = JSONObject(containerText)
         require(box.optString("format") == FORMAT) { "Unsupported HJ file" }
         val version = box.optInt("version", -1)
