@@ -96,7 +96,7 @@ let pendingHJText='';
 const D={name:'My server',tunnel:'ssh',from:'direct',custom:true,sshHost:'',sshPort:'22',user:'',pass:'',key:'',keyPass:'',known:'',keepalive:'30',
 pHost:'',pPort:'443',pUser:'',pPass:'',sni:'',verify:true,ws:false,wsPath:'/',payload:'GET wss://[host] HTTP/1.1[crlf]Host: [host][crlf]Connection: upgrade[crlf]Upgrade: websocket[crlf][crlf]',
 dnsMode:'custom',dns1:'1.1.1.1',dns2:'1.0.0.1',dnsFwd:true,defRoute:true,ipv6:false,kill:false,routes:'',excl:'',appMode:'off',apps:[],
-reconnect:true,delay:'5',retries:'5',wake:false,hyHost:'',hyPort:'443',hyAuth:'',hyUser:'',hySni:'',hyInsecure:false,hyObfs:'',hyUp:'',hyDown:'',dnsDomain:'',dnsKey:'',dnsMode:'udp',dnsResolver:'',ping:true,pingUrl:'clients3.google.com/generate_204',
+reconnect:true,delay:'5',retries:'5',wake:false,hyHost:'',hyPort:'443',hyAuth:'',hyUser:'',hySni:'',hyInsecure:false,hyObfs:'',hyUp:'',hyDown:'',dnsDomain:'',dnsKey:'',dnsMode:'udp',dnsResolver:'',udpgw:true,udpgwPort:'7300',ping:true,pingUrl:'clients3.google.com/generate_204',
 tunnel:'ssh',xProto:'vless',xHost:'',xPort:'443',xSecret:'',xMethod:'aes-256-gcm',xNet:'ws',xTls:true,xSni:'',xWsPath:'/',xWsHost:'',link:''};
 let S={...D},LOG=[],ST={state:'DISCONNECTED',detail:'',error:''},STAT={},DIRECT_IP='',LOCAL_IP='',cur='home',appsList=[],toolOut='';
 try{const r=JSON.parse(localStorage.getItem('juan.p')||'{}');SECRET.forEach(k=>delete r[k]);S={...D,...r}}catch(e){}
@@ -215,7 +215,7 @@ ${card('',`<label class="row"><div class="t"><b>${S._hjLocked?'DNS settings lock
 ${card('',`<button class="row" data-act="tg" style="border:0;width:100%;text-align:left"><div class="t"><b>✈ Join our Telegram</b><small>Updates, configs and support · t.me/hometechnol</small></div></button>`)}`},
 
 tunnel(){return card('Connection method',METHODS.map(m=>m[3]?`<button class="row" data-method="${m[0]}"><div class="t"><b>${m[1]}</b>${m[2]?`<small>${m[2]}</small>`:''}</div>${methodId()===m[0]?`<span class="pk">✓</span>`:''}</button>`:`<div class="row off"><div class="t"><b>${m[1]}</b></div><span class="badge">${m[4]}</span></div>`).join(''))+(methodId()===''?'<div class="note">Custom combination (set under Connect from below).</div>':'')
-+(SSHY()?card('Connect from',Object.entries(FROM).map(([k,l])=>rad('from',k,l)).join(''))
++(SSHY()?card('UDP',sw('UDP over SSH (UDPGW)','udpgw','Lets calls, games and other UDP apps work through SSH. The server must run a UDP gateway, usually on port 7300.')+(S.udpgw?f('UDP gateway port','udpgwPort',{m:'numeric'}):''))+card('Connect from',Object.entries(FROM).map(([k,l])=>rad('from',k,l)).join(''))
 +card('Options',sw('Custom payload','custom','Sent before the SSH handshake over HTTP, TLS or WebSocket transports.',1))
 +'<div class="note">Direct + SNI connects straight to your server over TLS with the server name you choose. Leave the front address empty to use the SSH host.</div>'
 :'')

@@ -4,6 +4,9 @@ import com.jcraft.jsch.ChannelDirectTCPIP
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session
 import java.io.ByteArrayInputStream
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.util.concurrent.ConcurrentHashMap
 import java.io.DataInputStream
 import java.io.InputStream
 import java.io.OutputStream
@@ -109,7 +112,7 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
             repeat(inp.read()) { inp.read() }
             out.write(byteArrayOf(5, 0)); out.flush()
             inp.read(); val cmd = inp.read(); inp.read(); val atyp = inp.read()
-            if (cmd != 1) { out.write(byteArrayOf(5, 7, 0, 1, 0, 0, 0, 0, 0, 0)); return@use }
+            if (cmd != 1 && cmd != 3) { out.write(byteArrayOf(5, 7, 0, 1, 0, 0, 0, 0, 0, 0)); return@use }
             val host = when (atyp) {
                 1 -> (1..4).joinToString(".") { inp.read().toString() }
                 3 -> ByteArray(inp.read()).also { inp.readFully(it) }.toString(Charsets.UTF_8)
@@ -117,6 +120,11 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
                 else -> return@use
             }
             val port = (inp.read() shl 8) or inp.read()
+            if (cmd == 3) {                                   // UDP ASSOCIATE
+                if (!c.udpgw) { out.write(byteArrayOf(5, 7, 0, 1, 0, 0, 0, 0, 0, 0)); return@use }
+                udpAssociate(c0, out, ssh)
+                return@use
+            }
             if (JuanPolicy.blocked(host, port)) { out.write(byteArrayOf(5, 2, 0, 1, 0, 0, 0, 0, 0, 0)); return@use }
             val ch = ssh.openChannel("direct-tcpip") as ChannelDirectTCPIP
             ch.setHost(host); ch.setPort(port)
@@ -128,7 +136,147 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
         } catch (_: Exception) { try { out.write(byteArrayOf(5, 5, 0, 1, 0, 0, 0, 0, 0, 0)) } catch (_: Exception) {} }
     }
 
+    // ---------- UDP over SSH (udpgw) ----------
+    @Volatile private var udpgw: UdpGw? = null
+
+    private fun udpAssociate(c0: Socket, out: OutputStream, ssh: Session) {
+        val gw = udpgw ?: synchronized(this) { udpgw ?: UdpGw(ssh).also { udpgw = it } }
+        val a = UdpAssoc(gw)
+        try {
+            val p = a.port()
+            out.write(byteArrayOf(5, 0, 0, 1, 127, 0, 0, 1, (p shr 8).toByte(), p.toByte())); out.flush()
+            pool.execute { a.run() }
+            val ins = c0.getInputStream()
+            while (ins.read() >= 0) { /* the association lives as long as this TCP connection */ }
+        } catch (_: Exception) {
+        } finally { a.close() }
+    }
+
+    /** One shared channel to the server's UDP gateway (badvpn-udpgw, usually 127.0.0.1:7300 on the server). */
+    private inner class UdpGw(private val ssh: Session) {
+        private val lock = Any()
+        private var out: OutputStream? = null
+        private var ch: ChannelDirectTCPIP? = null
+        @Volatile private var failedAt = 0L
+        @Volatile private var warned = false
+        val owners = ConcurrentHashMap<Int, UdpAssoc>()
+        private val nextId = java.util.concurrent.atomic.AtomicInteger(1)
+
+        fun newId(): Int { var id = nextId.getAndIncrement() and 0xFFFF; if (id == 0) id = nextId.getAndIncrement() and 0xFFFF; return id }
+
+        private fun ensure(): OutputStream? = synchronized(lock) {
+            val cur = out
+            if (cur != null && ch?.isConnected == true) cur
+            else if (System.currentTimeMillis() - failedAt < 30_000) null
+            else try {
+                val c1 = ssh.openChannel("direct-tcpip") as ChannelDirectTCPIP
+                c1.setHost("127.0.0.1"); c1.setPort(c.udpgwPort)
+                val i = c1.inputStream
+                val o = c1.outputStream
+                c1.connect(8000)
+                ch = c1; out = o
+                log("UDP: gateway ready")
+                pool.execute { readLoop(i, c1) }
+                o
+            } catch (e: Exception) {
+                failedAt = System.currentTimeMillis(); ch = null; out = null
+                if (!warned) { warned = true; log("UDP: this server has no UDP gateway on port ${c.udpgwPort}") }
+                null
+            }
+        }
+
+        private fun readLoop(i: InputStream, c1: ChannelDirectTCPIP) {
+            val din = DataInputStream(i)
+            try {
+                while (running.get()) {
+                    val hb = ByteArray(2); din.readFully(hb)
+                    val len = (hb[0].toInt() and 0xFF) or ((hb[1].toInt() and 0xFF) shl 8)
+                    if (len < 3) break
+                    val p = ByteArray(len); din.readFully(p)
+                    val flags = p[0].toInt() and 0xFF
+                    val id = (p[1].toInt() and 0xFF) or ((p[2].toInt() and 0xFF) shl 8)
+                    val alen = if ((flags and 8) != 0) 16 else 4
+                    if (len < 3 + alen + 2) continue
+                    val ip = p.copyOfRange(3, 3 + alen)
+                    val prt = ((p[3 + alen].toInt() and 0xFF) shl 8) or (p[4 + alen].toInt() and 0xFF)
+                    val data = p.copyOfRange(5 + alen, len)
+                    if ((flags and 1) != 0 && data.isEmpty()) continue      // keepalive
+                    owners[id]?.deliver(ip, prt, data)
+                }
+            } catch (_: Exception) {
+            } finally {
+                synchronized(lock) { if (ch === c1) { out = null; ch = null } }
+                try { c1.disconnect() } catch (_: Exception) {}
+            }
+        }
+
+        fun send(id: Int, ip: ByteArray, port: Int, data: ByteArray): Boolean {
+            if (data.size > 60_000) return false
+            val o = ensure() ?: return false
+            val body = 3 + ip.size + 2 + data.size
+            val buf = ByteArray(2 + body)
+            buf[0] = body.toByte(); buf[1] = (body shr 8).toByte()
+            buf[2] = (if (ip.size == 16) 8 else 0).toByte()
+            buf[3] = id.toByte(); buf[4] = (id shr 8).toByte()
+            System.arraycopy(ip, 0, buf, 5, ip.size)
+            buf[5 + ip.size] = (port shr 8).toByte(); buf[6 + ip.size] = port.toByte()
+            System.arraycopy(data, 0, buf, 7 + ip.size, data.size)
+            return try {
+                synchronized(lock) { o.write(buf); o.flush() }
+                up.addAndGet(data.size.toLong()); true
+            } catch (_: Exception) { synchronized(lock) { if (out === o) out = null }; false }
+        }
+
+        fun close() { synchronized(lock) { try { ch?.disconnect() } catch (_: Exception) {}; ch = null; out = null }; owners.clear() }
+    }
+
+    /** One SOCKS5 UDP association: datagrams from the packet engine become udpgw packets and back. */
+    private inner class UdpAssoc(private val gw: UdpGw) {
+        private val sock = DatagramSocket(0, InetAddress.getByName("127.0.0.1"))
+        @Volatile private var client: java.net.InetSocketAddress? = null
+        private val ids = HashMap<String, Int>()
+
+        fun port() = sock.localPort
+
+        fun run() {
+            val buf = ByteArray(65535)
+            val pk = DatagramPacket(buf, buf.size)
+            while (!sock.isClosed) {
+                pk.length = buf.size
+                try { sock.receive(pk) } catch (_: Exception) { break }
+                client = pk.socketAddress as? java.net.InetSocketAddress
+                val n = pk.length
+                if (n < 10 || buf[2].toInt() != 0) continue                 // fragments are not supported
+                val ip: ByteArray; val prt: Int; val off: Int
+                when (buf[3].toInt()) {
+                    1 -> { ip = buf.copyOfRange(4, 8); prt = ((buf[8].toInt() and 0xFF) shl 8) or (buf[9].toInt() and 0xFF); off = 10 }
+                    4 -> { if (n < 22) continue; ip = buf.copyOfRange(4, 20); prt = ((buf[20].toInt() and 0xFF) shl 8) or (buf[21].toInt() and 0xFF); off = 22 }
+                    else -> continue
+                }
+                val key = ip.joinToString(",") + ":" + prt
+                val id = synchronized(ids) { ids.getOrPut(key) { gw.newId().also { gw.owners[it] = this } } }
+                gw.send(id, ip, prt, buf.copyOfRange(off, n))
+            }
+        }
+
+        fun deliver(ip: ByteArray, port: Int, data: ByteArray) {
+            val cl = client ?: return
+            val h = ByteArray(4 + ip.size + 2 + data.size)
+            h[3] = (if (ip.size == 16) 4 else 1).toByte()
+            System.arraycopy(ip, 0, h, 4, ip.size)
+            h[4 + ip.size] = (port shr 8).toByte(); h[5 + ip.size] = port.toByte()
+            System.arraycopy(data, 0, h, 6 + ip.size, data.size)
+            try { sock.send(DatagramPacket(h, h.size, cl)); down.addAndGet(data.size.toLong()) } catch (_: Exception) {}
+        }
+
+        fun close() {
+            try { sock.close() } catch (_: Exception) {}
+            synchronized(ids) { ids.values.forEach { gw.owners.remove(it) }; ids.clear() }
+        }
+    }
+
     override fun stop() {
+        try { udpgw?.close() } catch (_: Exception) {}
         running.set(false)
         try { proxy?.cancel() } catch (_: Exception) {}      // aborts a handshake that is still in progress
         try { server?.close() } catch (_: Exception) {}

@@ -523,7 +523,7 @@ class JuanVpnService : VpnService() {
         tunFd = pfd.detachFd()   // native code may close it; Java must not double-close (fdsan)
         if (!live()) throw JuanConnException(JuanFail.CANCELLED, "Cancelled by user")
         JuanBus.log("TUN: interface up, starting native engine")
-        try { TunEngine.start(this, tunFd, e.socksPort, c.tunnel == "hy") } catch (ex: IllegalStateException) {
+        try { TunEngine.start(this, tunFd, e.socksPort, c.tunnel == "hy" || (c.tunnel == "ssh" && c.udpgw)) } catch (ex: IllegalStateException) {
             if (ex.message?.contains("not bundled") == true) throw JuanFatalException(ex.message ?: "TUN engine missing")
             throw JuanConnException(JuanFail.TUN_INIT, ex.message ?: "TUN engine failed to start", ex)
         }
