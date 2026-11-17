@@ -348,12 +348,14 @@ class JuanVpnService : VpnService() {
     /** Shadowsocks / V2Ray profiles: no proxy combinations to rotate, so the original retry loop is kept. */
     @Volatile private var fastFail = false
     @Volatile private var aux: java.io.Closeable? = null
+    @Volatile private var aux2: java.io.Closeable? = null
 
     /**
      * SlowDNS / DNSTT. The DNSTT program carries one TCP connection inside DNS queries and offers it on a local port.
      * SSH (or V2Ray / Shadowsocks) then connects to that local port instead of the real server.
      */
     private fun dnsConnect(c: JuanCfg) {
+        try { aux2?.close() } catch (_: Exception) {}; aux2 = null
         try { aux?.close() } catch (_: Exception) {}
         val runner = JuanDnsttRunner(this, c, JuanBus::log)
         aux = runner
@@ -363,8 +365,33 @@ class JuanVpnService : VpnService() {
             smartConnect(c.copy(tunnel = "ssh", from = "direct", custom = false, sshHost = "127.0.0.1", sshPort = port,
                 pHost = "", payload = "", proxies = emptyList(), snis = emptyList(), payloads = emptyList()))
         } else {
-            legacyConnect(c.copy(tunnel = if (c.xProto == "ss") "ss" else "v2",
-                xSni = c.xSni.ifBlank { c.xHost }, xWsHost = c.xWsHost.ifBlank { c.xHost }, xHost = "127.0.0.1", xPort = port))
+            val x = c.copy(tunnel = if (c.xProto == "ss") "ss" else "v2", xSni = c.xSni.ifBlank { c.xHost }, xWsHost = c.xWsHost.ifBlank { c.xHost })
+            // Most DNS tunnel servers forward to SSH, not to V2Ray. With an SSH login filled in, V2Ray / Shadowsocks goes
+            // inside SSH (DNS -> SSH -> V2Ray). Without one, or if SSH is refused, it is tried straight through DNS.
+            val sshReady = c.user.isNotBlank() && (c.pass.isNotEmpty() || c.key.isNotBlank()) && c.xHost.isNotBlank()
+            if (sshReady) {
+                var ssh: JuanSshEngine? = null
+                try {
+                    val sc = c.copy(tunnel = "ssh", from = "direct", custom = false, sshHost = "127.0.0.1", sshPort = port,
+                        pHost = "", payload = "", proxies = emptyList(), snis = emptyList(), payloads = emptyList())
+                    JuanBus.log("Connecting...")
+                    val eng = makeEngine(sc) as JuanSshEngine
+                    ssh = eng
+                    eng.start()
+                    if (!live()) { eng.stop(); return }
+                    aux2 = java.io.Closeable { eng.stop() }
+                    val lp = eng.forwardTo(c.xHost, c.xPort)
+                    legacyConnect(x.copy(xHost = "127.0.0.1", xPort = lp))
+                    return
+                } catch (ex: Throwable) {
+                    try { ssh?.stop() } catch (_: Exception) {}
+                    try { aux2?.close() } catch (_: Exception) {}; aux2 = null
+                    if (ex is InterruptedException || !live()) return
+                    abortAttempt()
+                    JuanBus.log("Trying the direct route...")
+                }
+            }
+            legacyConnect(x.copy(xHost = "127.0.0.1", xPort = port))
         }
     }
 
@@ -644,6 +671,7 @@ class JuanVpnService : VpnService() {
 
     @Synchronized private fun teardown() {
         lastDown = System.currentTimeMillis()
+        try { aux2?.close() } catch (_: Exception) {}; aux2 = null
         try { aux?.close() } catch (_: Exception) {}; aux = null
         stopping = true
         holdTun = false

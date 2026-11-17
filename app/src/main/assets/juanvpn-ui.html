@@ -174,13 +174,13 @@ const METHODS=[
 const methodId=()=>{if(S.tunnel==='smart')return'smart';if(S.tunnel==='v2')return'v2';if(S.tunnel==='ss')return'ss';if(S.tunnel==='hy'||S.tunnel==='dnstt'||S.tunnel==='dnsv2')return S.tunnel;if(S.tunnel!=='ssh')return'';const f=S.from,c=!!S.custom;return f==='direct'?'ssh':f==='dpay'?'sshp':f==='sni'?(c?'sshlp':'sshl'):f==='http'?(c?'httpp':'http'):f==='tls'&&c?'httpslp':''};
 const methodName=()=>{const m=METHODS.find(x=>x[0]===methodId());return m?m[1]:(S.tunnel==='ssh'?'SSH (custom)':XN[S.tunnel]||'')};
 const homeRows=()=>{const t=S.tunnel,xr=go('xserver',['V2Ray / Shadowsocks server',xdesc()]),hr=go('hyserver',['Hysteria server',hydesc()]),dr=go('dnstt',['DNS tunnel',dnsdesc()]);
-return t==='smart'?card('',sshRow()+xr+hr):t==='ssh'?card('',sshRow()):t==='hy'?card('',hr):t==='dnstt'?card('',dr+sshRow()):t==='dnsv2'?card('',dr+xr):card('',go('xserver',[XN[t]+' server',xdesc()]))};
+return t==='smart'?card('',sshRow()+xr+hr):t==='ssh'?card('',sshRow()):t==='hy'?card('',hr):t==='dnstt'?card('',dr+sshRow()):t==='dnsv2'?card('',dr+sshRow()+xr):card('',go('xserver',[XN[t]+' server',xdesc()]))};
 const serversCard=()=>{const t=S.tunnel,xr=go('xserver',['V2Ray / Shadowsocks server',xdesc()]),hr=go('hyserver',['Hysteria server',hydesc()]),dr=go('dnstt',['DNS tunnel',dnsdesc()]);
 if(t==='ssh')return '';
 if(t==='smart')return card('Servers',sshRow()+xr+hr)+'<div class="note">Smart tries your SSH server (with the proxy, SNI and payload above), your V2Ray / Shadowsocks server and your Hysteria server. It starts with the one that worked last and switches by itself when one fails. Fill in any of them.</div>';
 if(t==='hy')return card('',hr)+'<div class="note">Hysteria runs over UDP (QUIC) and also carries the UDP traffic of your apps, such as calls and games. Some networks block UDP; then Hysteria cannot connect.</div>';
 if(t==='dnstt')return card('',dr+sshRow())+'<div class="note">SlowDNS carries your SSH connection inside DNS queries. Set the DNS tunnel, then your SSH login (the SSH host is not used). Your DNSTT server must forward to its SSH port. It is slow but works where little else does.</div>';
-if(t==='dnsv2')return card('',dr+xr)+'<div class="note">Your V2Ray / Shadowsocks connection travels inside DNS queries. Your DNSTT server must forward to your V2Ray port. The V2Ray address is only used as the TLS / WebSocket name.</div>';
+if(t==='dnsv2')return card('',dr+sshRow()+xr)+'<div class="note">Most DNS tunnel servers forward to SSH. Fill in the SSH login and your V2Ray / Shadowsocks connection goes DNS → SSH → V2Ray, to the address on the V2Ray page. If your DNS server forwards straight to V2Ray, leave the SSH login empty.</div>';
 return card('',xr.replace('V2Ray / Shadowsocks server',XN[t]+' server'))+'<div class="note">VMess, VLESS and Trojan work over TCP, TLS and WebSocket on any port. REALITY, XTLS flow and gRPC are not available in this build. VMess needs the phone clock to be accurate.</div>'};
 const SSHY=()=>S.tunnel==='ssh'||S.tunnel==='smart';
 const sshRow=()=>go('ssh',['SSH server',S._hjLocked?'Locked configuration':(S.user&&S.sshHost)?S.user+'@'+S.sshHost+':'+S.sshPort:'Not set']);

@@ -67,6 +67,28 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
 
     override fun alive() = running.get() && session?.isConnected == true
 
+    private val extra = java.util.concurrent.CopyOnWriteArrayList<ServerSocket>()
+
+    /** A local port that reaches host:port through this SSH session. Used to put V2Ray / Shadowsocks inside SSH. */
+    fun forwardTo(host: String, rport: Int): Int {
+        val s = session ?: throw IllegalStateException("SSH is not connected")
+        val ss = ServerSocket(0, 64, InetAddress.getByName("127.0.0.1"))
+        extra.add(ss)
+        pool.execute { while (running.get()) try { val cl = ss.accept(); pool.execute { pipeTo(cl, s, host, rport) } } catch (_: Exception) { break } }
+        return ss.localPort
+    }
+
+    private fun pipeTo(cl: Socket, ssh: Session, host: String, rport: Int) = cl.use { c0 ->
+        try {
+            val ch = ssh.openChannel("direct-tcpip") as ChannelDirectTCPIP
+            ch.setHost(host); ch.setPort(rport)
+            ch.setInputStream(CIn(c0.getInputStream(), up)); ch.setOutputStream(COut(c0.getOutputStream(), down))
+            ch.connect(10_000)
+            while (!ch.isClosed && !c0.isClosed) Thread.sleep(100)
+            ch.disconnect()
+        } catch (_: Exception) {}
+    }
+
     /** Opens and closes a real channel through the SSH server. */
     override fun probe(): Boolean = try {
         val ch = session!!.openChannel("direct-tcpip") as ChannelDirectTCPIP
@@ -110,6 +132,7 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
         running.set(false)
         try { proxy?.cancel() } catch (_: Exception) {}      // aborts a handshake that is still in progress
         try { server?.close() } catch (_: Exception) {}
+        extra.forEach { try { it.close() } catch (_: Exception) {} }
         try { session?.disconnect() } catch (_: Exception) {}
         pool.shutdownNow()
     }
