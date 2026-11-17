@@ -34,6 +34,7 @@ input[type=radio]:checked{border-color:var(--ac)}input[type=radio]:checked::afte
 input.sw{appearance:none;width:46px;height:26px;border-radius:13px;background:#2a3955;position:relative;flex:none;margin:0;transition:.15s}
 input.sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#cfd8e8;transition:.15s}
 input.sw:checked{background:var(--ac2)}input.sw:checked::after{left:23px;background:var(--ac)}
+.pk{color:var(--ac,#22d3a6);font-weight:800;font-size:18px}
 .badge{font-size:11px;padding:2px 8px;border-radius:20px;background:#ffffff12;color:var(--mu)}
 .btn{display:block;width:100%;height:50px;border-radius:25px;border:1px solid var(--ln);background:var(--s2);font-weight:650;cursor:pointer}
 .btn.pri{background:var(--ac);border-color:var(--ac);color:#04231c}.btn.bad{background:#3a1a22;border-color:#6b2b38;color:#ffb4bd}
@@ -156,6 +157,22 @@ const rad=(k,v,l,dis,why)=>`<label class="row ${dis?'off':''}"><input type="radi
 const card=(h,b)=>`<section class="card">${h?`<h3>${h}</h3>`:''}${b}</section>`;
 
 const FROM={direct:'Direct',dpay:'Direct + Payload',sni:'Direct + SNI (TLS)',http:'HTTP proxy',socks5:'SOCKS5 proxy',socks4:'SOCKS4 proxy',tls:'TLS/SSL proxy',ws:'WebSocket'};
+const METHODS=[
+['smart','Smart (auto)','SSH + V2Ray, switches by itself',{tunnel:'smart'}],
+['ssh','SSH Direct','',{tunnel:'ssh',from:'direct',custom:false}],
+['sshp','SSH + Payload','',{tunnel:'ssh',from:'dpay'}],
+['sshl','SSH + SSL','',{tunnel:'ssh',from:'sni',custom:false}],
+['sshlp','SSH + SSL + Payload','',{tunnel:'ssh',from:'sni',custom:true}],
+['http','HTTP Proxy','',{tunnel:'ssh',from:'http',custom:false}],
+['httpp','HTTP Proxy + Payload','',{tunnel:'ssh',from:'http',custom:true}],
+['httpslp','HTTP Proxy + SSL + Payload','',{tunnel:'ssh',from:'tls',custom:true}],
+['v2','V2Ray / Xray','VMess, VLESS, Trojan',{tunnel:'v2'}],
+['ss','Shadowsocks','',{tunnel:'ss'}],
+['dnstt','SlowDNS (DNSTT)','',null,'Needs DNSTT engine'],
+['dnsv2','DNSTT + V2Ray','',null,'Needs DNSTT engine'],
+['hy','Hysteria','',null,'Needs QUIC engine']];
+const methodId=()=>{if(S.tunnel==='smart')return'smart';if(S.tunnel==='v2')return'v2';if(S.tunnel==='ss')return'ss';if(S.tunnel!=='ssh')return'';const f=S.from,c=!!S.custom;return f==='direct'?'ssh':f==='dpay'?'sshp':f==='sni'?(c?'sshlp':'sshl'):f==='http'?(c?'httpp':'http'):f==='tls'&&c?'httpslp':''};
+const methodName=()=>{const m=METHODS.find(x=>x[0]===methodId());return m?m[1]:(S.tunnel==='ssh'?'SSH (custom)':XN[S.tunnel]||'')};
 const SSHY=()=>S.tunnel==='ssh'||S.tunnel==='smart';
 const sshRow=()=>go('ssh',['SSH server',S._hjLocked?'Locked configuration':(S.user&&S.sshHost)?S.user+'@'+S.sshHost+':'+S.sshPort:'Not set']);
 const XN={smart:'Smart (auto)',ssh:'Secure Shell (SSH)',v2:'V2Ray / Xray',ss:'Shadowsocks',hy:'Hysteria'};
@@ -180,13 +197,13 @@ return `${S._hjLocked?'<div class="warn">This is a password-unlocked, owner-lock
 ${card('',`<div class="st ${ST.state}"><span class="dot"></span><div style="flex:1"><b>${ST.state[0]+ST.state.slice(1).toLowerCase()}</b><div style="color:var(--mu);font-size:12.5px">${esc(ST.detail||(S._hjLocked?'Locked configuration':S.name))}</div></div>${ST.state==='CONNECTED'&&S.ping?`<span class="pg ${pingCls(STAT.ping??-2)}">${(STAT.ping??-2)===-2?'…':STAT.ping<0?'No reply':STAT.ping+' ms'}</span>`:''}</div>
 <div class="stats"><div><b>${dur(STAT.uptime)}</b><small>Uptime</small></div><div><b>${fmt(STAT.downBps)}/s</b><small>Download</small></div><div><b>${fmt(STAT.upBps)}/s</b><small>Upload</small></div><div><b>${fmt(STAT.down)}</b><small>Downloaded</small></div><div><b>${fmt(STAT.up)}</b><small>Uploaded</small></div><div data-act="refreshIp" style="cursor:pointer"><b>${esc(getLocalIp()||'—')}</b><small>Local IP</small></div></div>${ST.error?`<div class="err" style="padding-top:12px">${esc(ST.error)}</div>`:''}`)}
 ${HJ.notes&&String(HJ.notes).trim()?card('Message from config owner',`<div class="fld" style="white-space:pre-wrap;line-height:1.5">${esc(HJ.notes)}</div>`):''}
-${card('',go('tunnel',[sum(),'Tunnel type and connect-from']))}
+${card('',go('tunnel',[methodName(),sum()]))}
 ${S._hjLocked?'':!SSHY()?'':payOn()?card('Payload',`<div class="fld" style="border:0"><textarea data-k="payload" spellcheck="false" autocapitalize="off" style="min-height:110px">${esc(S.payload)}</textarea></div>`+edRows()):(edRows()?card('',edRows()):'')}
 ${S.tunnel==='smart'?card('',sshRow()+go('xserver',['V2Ray / Shadowsocks server',xdesc()])):S.tunnel==='ssh'?card('',sshRow()):card('',go('xserver',[XN[S.tunnel]+' server',xdesc()]))}
 ${card('',`<label class="row"><div class="t"><b>${S._hjLocked?'DNS settings locked':`DNS (${S.dnsMode==='auto'?'Automatic':esc(S.dns1)})`}</b><small>${S._hjLocked?'Details hidden':S.dnsFwd?'Forwarded through tunnel':'Resolved locally'}</small></div></label>`+go('dns',['DNS and routing',S._hjLocked?'Locked':'Servers, routes, kill switch']))}
 ${card('',`<button class="row" data-act="tg" style="border:0;width:100%;text-align:left"><div class="t"><b>✈ Join our Telegram</b><small>Updates, configs and support · t.me/hometechnol</small></div></button>`)}`},
 
-tunnel(){return card('Tunnel type',rad('tunnel','smart','Smart (auto): SSH + V2Ray, switches by itself')+rad('tunnel','ssh','Secure Shell (SSH)')+rad('tunnel','v2','V2Ray / Xray (VMess, VLESS, Trojan)')+rad('tunnel','hy','Hysteria',1,'Needs QUIC engine')+rad('tunnel','ss','Shadowsocks'))
+tunnel(){return card('Connection method',METHODS.map(m=>m[3]?`<button class="row" data-method="${m[0]}"><div class="t"><b>${m[1]}</b>${m[2]?`<small>${m[2]}</small>`:''}</div>${methodId()===m[0]?`<span class="pk">✓</span>`:''}</button>`:`<div class="row off"><div class="t"><b>${m[1]}</b></div><span class="badge">${m[4]}</span></div>`).join(''))+(methodId()===''?'<div class="note">Custom combination (set under Connect from below).</div>':'')
 +(SSHY()?card('Connect from',Object.entries(FROM).map(([k,l])=>rad('from',k,l)).join(''))
 +card('Options',sw('Custom payload','custom','Sent before the SSH handshake over HTTP, TLS or WebSocket transports.',1))
 +'<div class="note">Direct + SNI connects straight to your server over TLS with the server name you choose. Leave the front address empty to use the SSH host.</div>'
@@ -224,7 +241,7 @@ dns(){return card('DNS',`<div class="fld"><label>Mode</label><select data-k="dns
 apps(){return card('Mode',`<div class="fld"><select data-k="appMode" data-re><option value="off" ${S.appMode==='off'?'selected':''}>Off — route all apps</option><option value="inc" ${S.appMode==='inc'?'selected':''}>Only selected apps</option><option value="exc" ${S.appMode==='exc'?'selected':''}>All except selected</option></select></div>`)
 +(S.appMode==='off'?'':card('Installed apps',appsList.length?appsList.map(a=>`<label class="ap"><div class="t"><b>${esc(a.name)}</b><small>${esc(a.pkg)}</small></div><input type="checkbox" class="sw" data-app="${esc(a.pkg)}" ${S.apps.includes(a.pkg)?'checked':''}></label>`).join(''):'<div class="fld"><div class="h" style="margin:0">No app list yet. The Android layer supplies installed apps when this screen opens.</div></div>'))},
 
-settings(){return card('Device',go('deviceid',['Device ID',deviceId()]))+card('Tunnel',go('tunnel',[XN[S.tunnel],sum()])+go('ssh',['SSH server','Host, auth, host key'])+go('xserver',['V2Ray / Shadowsocks server','Address, UUID or password, transport'])+go('dns',['DNS and routing','']))
+settings(){return card('Device',go('deviceid',['Device ID',deviceId()]))+card('Tunnel',go('tunnel',[methodName(),sum()])+go('ssh',['SSH server','Host, auth, host key'])+go('xserver',['V2Ray / Shadowsocks server','Address, UUID or password, transport'])+go('dns',['DNS and routing','']))
 +card('Reliability',sw('Auto reconnect','reconnect','Reconnects after airplane mode, signal loss or a network switch.',1)+(S.reconnect?f('Delay (seconds)','delay',{m:'numeric'})+f('Max retries','retries',{m:'numeric',h:'Stops early on bad credentials or an unreachable server.'}):'')+sw('CPU wake lock','wake','Fewer drops with the screen off. Uses more battery.')+`<button class="row" data-act="batt"><div class="t"><b>Battery optimization</b><small>Exempt JUAN VPN so it stays alive</small></div>${ic('ch','ch')}</button>`)
 +card('HTTP ping',sw('HTTP ping','ping','Measures the speed of the connection every few seconds. Shown in the log and on Home: green is fast, amber is average, red is slow.',1)+(S.ping?f('Ping URL','pingUrl',{ph:'clients3.google.com/generate_204'}):''))
 +card('Notifications',`<button class="row" data-act="notif"><div class="t"><b>Allow notifications</b><small>Needed for the Disconnect action on Android 13+</small></div>${ic('ch','ch')}</button>`)
@@ -449,4 +466,5 @@ document.addEventListener('change',e=>{if(e.target.dataset.hj){HJ[e.target.datas
 render();
 setTimeout(()=>{try{if(ST.state==='DISCONNECTED'&&B()&&B().refreshIp)B().refreshIp()}catch(e){}},1200);
 setTimeout(pushPing,600);
+document.addEventListener('click',e=>{const b=e.target.closest('[data-method]');if(!b)return;const m=METHODS.find(x=>x[0]===b.dataset.method);if(!m||!m[3])return;Object.assign(S,m[3]);if(m[0]==='v2'&&S.xProto==='ss')S.xProto='vless';save();render()});
 </script></body></html>
