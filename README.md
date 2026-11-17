@@ -140,3 +140,13 @@ SSH profiles with several proxies, SNI names or payloads now rotate automaticall
 
 - **Log header like HTTP Custom.** When the app opens the log starts with `JUAN VPN v...`, `running on <maker> (<model>)`, `Android <ver> API-<sdk> (<abi>)`, the network line (`Airtel (KE) / LTE (4G)`, `Wi-Fi`, ...) and `Local IP 10.x.x.x`. The network and Local IP lines are written again on every connect and after the network returns (airplane mode off), so you can see the local IP change. IPs in the log are green and underlined.
 - The network type (LTE / 4G, 5G, 3G) needs the Phone permission (READ_PHONE_STATE). It is asked once; if you deny it the line says `Mobile data` instead.
+
+## Hybrid TLS for SNI / borrowed domains (v2.9.4)
+
+With a front/bug domain as SNI (for example `myaccount.telkom.co.ke` in front of your own server) the server's certificate can never match that name, so strict checking made every attempt fail with "Certificate does not match server name". The proxy layer now tries, per attempt:
+
+1. strict check against the SNI,
+2. strict check against the real SSH server name,
+3. continue without a certificate check. The SSH host key (trust prompt / pinned fingerprint) then identifies the server.
+
+Step 3 is only used when the SNI is a different name from the server's own. If the SNI is the server's own name, a bad certificate still fails. The profile is never changed; the log shows which step was used.

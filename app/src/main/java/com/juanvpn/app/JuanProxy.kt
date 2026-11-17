@@ -24,8 +24,12 @@ private val trustAll = arrayOf<javax.net.ssl.TrustManager>(object : javax.net.ss
     override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = emptyArray()
 })
 
-/** TLS with SNI. By default the certificate chain and hostname are verified; verify=false is an explicit user choice. */
-fun tlsWrap(plain: Socket, sni: String, port: Int, verify: Boolean = true): SSLSocket {
+/**
+ * TLS with SNI. By default the certificate chain and hostname are verified; verify=false is an explicit user choice
+ * (or the hybrid fallback in [JuanProxy] for a borrowed SNI). [verifyAs] checks the certificate against another name
+ * than the one sent as SNI, e.g. the real SSH server when the SNI is a front domain.
+ */
+fun tlsWrap(plain: Socket, sni: String, port: Int, verify: Boolean = true, verifyAs: String? = null): SSLSocket {
     val factory = if (verify) SSLSocketFactory.getDefault() as SSLSocketFactory
     else javax.net.ssl.SSLContext.getInstance("TLS").apply { init(null, trustAll, java.security.SecureRandom()) }.socketFactory
     val s = factory.createSocket(plain, sni, port, true) as SSLSocket
@@ -37,10 +41,14 @@ fun tlsWrap(plain: Socket, sni: String, port: Int, verify: Boolean = true): SSLS
         s.sslParameters = p
     } catch (_: Throwable) {}
     s.startHandshake()
-    if (verify && !HttpsURLConnection.getDefaultHostnameVerifier().verify(sni, s.session))
-        throw SSLPeerUnverifiedException("Certificate does not match server name '$sni'")
+    val checkName = verifyAs ?: sni
+    if (verify && !HttpsURLConnection.getDefaultHostnameVerifier().verify(checkName, s.session))
+        throw SSLPeerUnverifiedException("Certificate does not match server name '$checkName'")
     return s
 }
+
+/** Internal: the strict handshake failed only because of the certificate. */
+private class CertMismatch(val real: javax.net.ssl.SSLException) : javax.net.ssl.SSLException(real.message, real)
 
 private val IPV4 = Regex("(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})")
 
@@ -226,7 +234,16 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, priva
     @Volatile private var cancelled = false
     @Volatile private var wsWas2xx = false
 
-    private companion object { val rotation = AtomicInteger() }
+    private companion object {
+        val rotation = AtomicInteger()
+        /** "sni|host" pairs whose certificate cannot match (borrowed SNI); later attempts skip the failing strict handshakes. */
+        val relaxedFronts: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+    }
+
+    private fun isCertProblem(e: Throwable): Boolean = generateSequence(e) { it.cause }.take(6).any {
+        it is SSLPeerUnverifiedException || it is java.security.cert.CertificateException ||
+            it is java.security.cert.CertPathValidatorException || it.message?.contains("does not match", true) == true
+    }
 
     /** Called when the user disconnects: aborts a handshake that is still in progress. */
     fun cancel() {
@@ -311,12 +328,42 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, priva
                 val name = sniName.ifBlank { th }
                 if (name.matches(Regex("[0-9.:]+"))) log("TLS: warning - SNI is an IP address; servers usually need a domain name here")
                 log("TLS: handshake, SNI=$name")
-                if (!c.verify) log("TLS: warning - certificate verification is OFF")
-                val ssl = try { tlsWrap(s, name, tp, c.verify) } catch (e: javax.net.ssl.SSLException) {
-                    log("TLS: FAILED")
-                    throw JuanConnException(JuanFail.TLS, "TLS failed: ${e.message}", e)
+                // A borrowed SNI (front/bug domain) can never match the real server's certificate. Hybrid handling:
+                // strict check -> check against the real SSH server name -> continue unverified; the SSH host key
+                // (trust prompt / pinned fingerprint) then stays the identity check. A SNI that IS the server's own
+                // name is never downgraded, so a bad certificate there still fails.
+                val front = !name.equals(host, true) && !name.equals(th, true)
+                val frontKey = "${name.lowercase()}|${host.lowercase()}"
+                fun reopen(): Socket {
+                    try { s.close() } catch (_: Exception) {}
+                    val n = Socket(); inflight = n; protect(n)
+                    n.connect(InetSocketAddress(addr, tp), timeout); n.soTimeout = timeout; n.tcpNoDelay = true
+                    return n
                 }
-                log("TLS: ${ssl.session.protocol} ${ssl.session.cipherSuite}" + if (c.verify) ", certificate verified" else "")
+                fun wrap(verify: Boolean, verifyAs: String? = null): SSLSocket = try { tlsWrap(s, name, tp, verify, verifyAs) }
+                    catch (e: javax.net.ssl.SSLException) { throw if (verify && front && isCertProblem(e)) CertMismatch(e) else e }
+                val ssl: SSLSocket = try {
+                    if (!c.verify) { log("TLS: warning - certificate verification is OFF"); wrap(false) }
+                    else if (front && frontKey in relaxedFronts) {
+                        log("TLS: borrowed SNI, certificate not verified (SSH host key is checked next)")
+                        wrap(false)
+                    } else try { wrap(true) } catch (e: CertMismatch) {
+                        if (!front) throw e.real
+                        log("TLS: certificate is not for the borrowed SNI '$name' (normal for SNI fronting), checking '$host' instead")
+                        s = reopen()
+                        try { wrap(true, host) } catch (e2: CertMismatch) {
+                            log("TLS: certificate not verifiable, continuing; the SSH host key is the identity check")
+                            relaxedFronts.add(frontKey)
+                            s = reopen()
+                            wrap(false)
+                        }
+                    }
+                } catch (e: javax.net.ssl.SSLException) {
+                    val r = if (e is CertMismatch) e.real else e
+                    log("TLS: FAILED")
+                    throw JuanConnException(JuanFail.TLS, "TLS failed: ${r.message}", r)
+                }
+                log("TLS: ${ssl.session.protocol} ${ssl.session.cipherSuite}" + if (c.verify && frontKey !in relaxedFronts) ", certificate verified" else ", certificate not verified")
                 s = ssl
                 inflight = s
             }

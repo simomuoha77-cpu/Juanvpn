@@ -82,7 +82,7 @@ details{border-top:1px solid var(--ln);padding:12px 16px}details:first-of-type{b
 <header><div class="bar"><button class="ib" id="lead" aria-label="Menu"></button><h1 id="ttl">JUAN VPN</h1><button class="ib" id="gear" aria-label="Settings"></button><button class="ib" id="quick" aria-label="Config actions" title="Config actions"></button></div><nav class="tabs" id="tabs"></nav></header>
 <main id="v"></main><input type="file" id="fi" accept=".hj,.HJ,.json,application/json" hidden><div id="md"><div class="sheet" id="sh"></div></div><div id="toast"></div>
 <script>
-const VER='2.9.2',$=s=>document.querySelector(s);
+const VER='2.9.4',$=s=>document.querySelector(s);
 const I={menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',back:'<path d="M15 5l-7 7 7 7"/>',gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',plus:'<path d="M12 5v14M5 12h14"/>',ch:'<path d="M9 5l7 7-7 7"/>',ed:'<path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/>'};
 const ic=(n,c='')=>`<svg class="${c}" viewBox="0 0 24 24">${I[n]}</svg>`;
 const SECRET=['pass','key','keyPass','pPass','xSecret','hyAuth','hyObfs'];
@@ -247,7 +247,7 @@ ssh(){return card('Paste account',f('host:port@user:pass','sshPaste',{ph:'23.158
 +card('Keep-alive',f('Heartbeat (seconds)','keepalive',{m:'numeric'}))},
 
 tls(){return card('Upstream proxy',f('Host / IP','pHost')+f('Port','pPort',{m:'numeric'})+f('Username (optional)','pUser')+f('Password (optional)','pPass',{t:'password'}))
-+card('TLS',f('Server name (SNI)','sni',{h:'Sent during the TLS handshake and checked against the certificate.'})+sw('Verify certificate','verify','Always on in release builds. Turning it off is blocked by the engine.'))},
++card('TLS',f('Server name (SNI)','sni',{h:'Sent during the TLS handshake and checked against the certificate.'})+sw('Verify certificate','verify','On: the certificate is checked first. With a borrowed SNI (a domain that is not your server) it cannot match, so the app checks your SSH server name instead and, if that fails too, continues anyway. The SSH host key then confirms the server.'))},
 
 payload(){return card('Payload',f('Request template','payload',{area:1,h:'Any payload works. Tags: [host] [port] [host_port] [crlf] [cr] [lf] [split] [instant_split] [delay_split] [delay=ms] [ua] [netData] [protocol] [method] [rotate=a;b] [random=a;b]. Text after a blank line is sent too. To rotate payloads, put several and separate them with a line of ---.'})+`<div class="pv">${preview()}</div>`)
 +card('Templates',`<div class="btns"><button class="btn sm" data-tpl="ws">WebSocket</button><button class="btn sm" data-tpl="connect">HTTP CONNECT</button><button class="btn sm" data-tpl="get">Plain GET</button></div>`)
