@@ -96,7 +96,7 @@ let pendingHJText='';
 const D={name:'My server',tunnel:'ssh',from:'direct',custom:true,sshHost:'',sshPort:'22',user:'',pass:'',key:'',keyPass:'',known:'',keepalive:'30',
 pHost:'',pPort:'443',pUser:'',pPass:'',sni:'',verify:true,ws:false,wsPath:'/',payload:'GET wss://[host] HTTP/1.1[crlf]Host: [host][crlf]Connection: upgrade[crlf]Upgrade: websocket[crlf][crlf]',
 dnsMode:'custom',dns1:'1.1.1.1',dns2:'1.0.0.1',dnsFwd:true,defRoute:true,ipv6:false,kill:false,routes:'',excl:'',appMode:'off',apps:[],
-reconnect:true,delay:'5',retries:'5',wake:false,hyHost:'',hyPort:'443',hyAuth:'',hyUser:'',hySni:'',hyInsecure:false,hyObfs:'',hyUp:'',hyDown:'',dnsDomain:'',dnsKey:'',dnsMode:'udp',dnsResolver:'',udpgw:true,udpgwPort:'7300',ping:true,pingUrl:'clients3.google.com/generate_204',
+reconnect:true,delay:'5',retries:'5',wake:false,sshPaste:'',hyHost:'',hyPort:'443',hyAuth:'',hyUser:'',hySni:'',hyInsecure:false,hyObfs:'',hyUp:'',hyDown:'',dnsDomain:'',dnsKey:'',dnsMode:'udp',dnsResolver:'',udpgw:true,udpgwPort:'7300',ping:true,pingUrl:'clients3.google.com/generate_204',
 tunnel:'ssh',xProto:'vless',xHost:'',xPort:'443',xSecret:'',xMethod:'aes-256-gcm',xNet:'ws',xTls:true,xSni:'',xWsPath:'/',xWsHost:'',link:''};
 let S={...D},LOG=[],ST={state:'DISCONNECTED',detail:'',error:''},STAT={},DIRECT_IP='',LOCAL_IP='',cur='home',appsList=[],toolOut='';
 try{const r=JSON.parse(localStorage.getItem('juan.p')||'{}');SECRET.forEach(k=>delete r[k]);S={...D,...r}}catch(e){}
@@ -240,7 +240,8 @@ return card('Import',`<div class="fld"><label>Paste a share link</label><textare
 +(S.xTls?f('Server name (SNI)','xSni',{h:'Leave empty to use the address. Sent in the TLS handshake.'})+sw('Verify certificate','verify','Turn off only for your own server with a self-signed certificate or a borrowed SNI.'):'')
 +(S.xNet==='ws'?f('WebSocket path','xWsPath')+f('WebSocket Host header','xWsHost',{h:'Leave empty to use the SNI or address.'}):''))},
 
-ssh(){return card('Server',f('Profile name','name')+`<div class="g2" style="padding:0 16px"><div class="fld" style="padding-left:0;border:0"><label>Host</label><input data-k="sshHost" value="${esc(S.sshHost)}" autocapitalize="off"></div><div class="fld" style="padding-right:0;border:0"><label>Port</label><input data-k="sshPort" value="${esc(S.sshPort)}" inputmode="numeric"></div></div>`)
+ssh(){return card('Paste account',f('host:port@user:pass','sshPaste',{ph:'23.158.72.132:22@user:pass',h:'Paste an account from your provider and tap Fill in. A port range such as 1-65535 becomes port 22.'})+`<div class="btns"><button class="btn sm pri" data-act="pasteAcct">Fill in</button></div>`)
++card('Server',f('Profile name','name')+`<div class="g2" style="padding:0 16px"><div class="fld" style="padding-left:0;border:0"><label>Host</label><input data-k="sshHost" value="${esc(S.sshHost)}" autocapitalize="off"></div><div class="fld" style="padding-right:0;border:0"><label>Port</label><input data-k="sshPort" value="${esc(S.sshPort)}" inputmode="numeric"></div></div>`)
 +card('Authentication',f('Username','user')+f('Password','pass',{t:'password'})+f('Private key (optional)','key',{area:1,ph:'-----BEGIN OPENSSH PRIVATE KEY-----'})+f('Key passphrase','keyPass',{t:'password'})+'<div class="fld"><div class="h" style="margin:0">Credentials are handed to Android Keystore storage and are not kept in the page.</div></div>')
 
 +card('Keep-alive',f('Heartbeat (seconds)','keepalive',{m:'numeric'}))},
@@ -433,6 +434,7 @@ confirmReset(){try{if(B()&&B().disconnect)B().disconnect();S={...D};S._hjLocked=
 openExporter(){unmodal();nav('exporter')},
 saveQuick(){unmodal();ACT.saveP()},
 openServers(){unmodal();nav('servers')},
+pasteAcct(){const t=String(S.sshPaste||'').trim();const m=t.match(/^([^:@\s]+)(?::([\d-]+))?@([^:\s]+):(.+)$/)||t.match(/^([^:@\s]+):(\d+):([^:\s]+):(.+)$/);if(!m){toast('Use host:port@user:pass');return}const h=m[1],p=m[2]||'',u=m[3],pw=m[4];const ok=/^\d+$/.test(p)&&+p>=1&&+p<=65535;S.sshHost=h;S.sshPort=ok?p:'22';S.user=u;S.pass=pw;S.sshPaste='';save();try{if(B()&&B().saveSecrets)B().saveSecrets(JSON.stringify({pass:pw}))}catch(e){}render();toast('Account filled in'+(p&&!ok?' (port range: using 22)':''))},
 impLink(){try{const r=parseLink(S.link),was=S.tunnel;Object.assign(S,r.o);if(was==='smart'||was==='dnsv2'){S.xProto=r.o.tunnel==='ss'?'ss':(r.o.xProto||S.xProto);S.tunnel=was}if(r.name)S.name=r.name;S.link='';save();if(B()&&B().saveSecrets)B().saveSecrets(JSON.stringify(Object.fromEntries(SECRET.map(k=>[k,S[k]||'']))));log('Link imported: '+S.tunnel+' '+S.xHost+':'+S.xPort);toast('Link imported');render()}catch(x){toast(x.message);log('Import failed: '+x.message)}},
 forget(){S.known='';save();B()&&B().forgetHostKey&&B().forgetHostKey(S.sshHost,String(S.sshPort));toast('Trusted key cleared');render()},
 mdclose(){unmodal();render()},hkyes(){B()&&B().hostKeyAnswer&&B().hostKeyAnswer(true);unmodal()},hkno(){B()&&B().hostKeyAnswer&&B().hostKeyAnswer(false);unmodal()},
