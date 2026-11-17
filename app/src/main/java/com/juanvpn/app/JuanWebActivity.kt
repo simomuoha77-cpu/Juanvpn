@@ -265,8 +265,7 @@ class JuanWebActivity : Activity() {
             if (!on) JuanBus.pingMs = -2
         }
         @JavascriptInterface fun deviceId(): String = DeviceId.get(applicationContext)
-        @JavascriptInterface fun simOperator(): String =
-            (getSystemService(android.telephony.TelephonyManager::class.java)?.simOperator ?: "")
+        @JavascriptInterface fun simOperator(): String = Carrier.simCode(applicationContext)
         /** The phone's own address on the real network (not the VPN). Always visible, even for locked configs. */
         @JavascriptInterface fun localIp(): String = JuanDevice.localIp(applicationContext) ?: ""
         /** Refreshes the Public IP tile: through the tunnel when connected, directly otherwise. */

@@ -67,7 +67,7 @@ object JuanPolicy {
         }
         val ops = p.optJSONArray("operators")
         if (ops != null && ops.length() > 0) {
-            val sim = ctx.getSystemService(TelephonyManager::class.java)?.simOperator.orEmpty()
+            val sim = Carrier.simCode(ctx)
             if (sim.isBlank() || !(0 until ops.length()).any { ops.optString(it).trim() == sim })
                 return "This configuration is locked to another mobile operator." + if (sim.isNotBlank()) " (Your SIM: $sim)" else " (No SIM detected)"
         }

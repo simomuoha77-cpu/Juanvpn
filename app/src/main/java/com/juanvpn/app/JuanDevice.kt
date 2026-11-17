@@ -37,8 +37,8 @@ object JuanDevice {
         val caps = underlying(ctx) ?: return "No network"
         if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return "Wi-Fi"
         if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) return "Ethernet"
-        val tm = try { ctx.getSystemService(TelephonyManager::class.java) } catch (_: Throwable) { null } ?: return "Mobile data"
-        val op = tm.networkOperatorName.ifBlank { tm.simOperatorName }.ifBlank { "Mobile" }
+        val tm = Carrier.dataTm(ctx) ?: return "Mobile data"
+        val op = Carrier.name(ctx)
         val cc = tm.networkCountryIso.ifBlank { tm.simCountryIso }.uppercase()
         val type = try {
             @Suppress("DEPRECATION", "MissingPermission")
