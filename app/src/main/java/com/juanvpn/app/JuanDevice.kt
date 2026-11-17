@@ -16,6 +16,7 @@ object JuanDevice {
         return listOf(
             "JUAN VPN v$ver",
             "running on $maker (${Build.MODEL})",
+            "engines: Hysteria " + (if (JuanProc.binary(ctx, "hysteria") != null) "yes" else "no") + ", DNSTT " + (if (JuanProc.binary(ctx, "dnstt") != null) "yes" else "no"),
             "Android ${Build.VERSION.RELEASE} API-${Build.VERSION.SDK_INT} (${Build.SUPPORTED_ABIS.firstOrNull() ?: "?"})"
         )
     }

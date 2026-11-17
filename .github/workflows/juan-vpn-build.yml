@@ -64,29 +64,68 @@ jobs:
         with:
           go-version: stable
           cache: false
-      - name: Build Hysteria + DNSTT engines (optional, never fails the APK build)
+      - name: Get Hysteria + DNSTT engines (optional, never fails the APK build)
         continue-on-error: true
         run: |
+          go version
           NDK="${ANDROID_NDK_HOME:-$ANDROID_NDK_LATEST_HOME}"
           BIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
           OUT="$PWD/app/src/main/jniLibs"
           W="$(mktemp -d)"
+          is_elf() { [ -s "$1" ] && [ "$(head -c4 "$1" | od -An -c | tr -d ' ')" = '177ELF' ]; }
+
+          # ---------- Hysteria ----------
           TAG=$(git ls-remote --tags --refs https://github.com/apernet/hysteria 'refs/tags/app/v2.*' | sed 's#.*/tags/##' | sort -V | tail -1)
-          echo "Hysteria tag: $TAG"
-          git clone --depth 1 --branch "$TAG" https://github.com/apernet/hysteria "$W/hysteria" || echo "hysteria clone failed"
-          git clone --depth 1 https://www.bamsoftware.com/git/dnstt.git "$W/dnstt" || echo "dnstt clone failed"
-          one() { # abi goarch clang-prefix goarm
-            mkdir -p "$OUT/$1"
-            export GOOS=android GOARCH="$2" CGO_ENABLED=1 CC="$BIN/$3-clang" GOARM="$4"
-            LD="-s -w -linkmode external -extldflags -Wl,-z,max-page-size=16384"
-            ( cd "$W/hysteria/app" && go build -trimpath -ldflags "$LD" -o "$OUT/$1/libhysteria.so" . ) || echo "hysteria $1 FAILED"
-            ( cd "$W/dnstt/dnstt-client" && go build -trimpath -ldflags "$LD" -o "$OUT/$1/libdnstt.so" . ) || echo "dnstt $1 FAILED"
+          echo "Hysteria release: $TAG"
+          ENC=$(printf '%s' "$TAG" | sed 's#/#%2F#')
+          hy() { # abi release-suffix goarch clang goarm
+            mkdir -p "$OUT/$1"; F="$OUT/$1/libhysteria.so"
+            curl -fL --retry 3 -o "$F" "https://github.com/apernet/hysteria/releases/download/$ENC/hysteria-android-$2" || true
+            if is_elf "$F"; then echo "hysteria $1: downloaded"; chmod 755 "$F"; return 0; fi
+            echo "hysteria $1: download failed, building from source"
+            [ -d "$W/hysteria" ] || git clone --depth 1 --branch "$TAG" https://github.com/apernet/hysteria "$W/hysteria" || return 1
+            ( cd "$W/hysteria/app" && GOOS=android GOARCH="$3" GOARM="$5" CGO_ENABLED=1 CC="$BIN/$4-clang" \
+                go build -trimpath -ldflags "-s -w" -o "$F" . ) \
+              || ( cd "$W/hysteria/app" && GOOS=linux GOARCH="$3" GOARM="$5" CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "$F" . ) \
+              || { echo "hysteria $1: FAILED"; rm -f "$F"; return 1; }
+            echo "hysteria $1: built"
           }
-          one arm64-v8a   arm64 aarch64-linux-android23 ""
-          one armeabi-v7a arm   armv7a-linux-androideabi23 7
-          one x86_64      amd64 x86_64-linux-android23 ""
-          one x86         386   i686-linux-android23 ""
-          ls -la "$OUT"/*/libhysteria.so "$OUT"/*/libdnstt.so || true
+          hy arm64-v8a   arm64 arm64 aarch64-linux-android23 ""
+          hy armeabi-v7a armv7 arm   armv7a-linux-androideabi23 7
+          hy x86_64      amd64 amd64 x86_64-linux-android23 ""
+          hy x86         386   386   i686-linux-android23 ""
+
+          # ---------- DNSTT (built from source) ----------
+          git clone --depth 1 https://www.bamsoftware.com/git/dnstt.git "$W/dnstt" || echo "dnstt: git clone failed"
+          if [ ! -d "$W/dnstt/dnstt-client" ]; then
+            echo "dnstt: trying the Go module proxy"
+            mkdir -p "$W/mod" && ( cd "$W/mod" && go mod init x >/dev/null 2>&1; \
+              D=$(go mod download -json www.bamsoftware.com/git/dnstt.git@latest | python3 -c "import sys,json;print(json.load(sys.stdin)['Dir'])") && cp -r "$D" "$W/dnstt" && chmod -R u+w "$W/dnstt" ) || echo "dnstt: module download failed"
+          fi
+          dn() { # abi goarch clang goarm
+            mkdir -p "$OUT/$1"; F="$OUT/$1/libdnstt.so"
+            ( cd "$W/dnstt/dnstt-client" && GOOS=android GOARCH="$2" GOARM="$4" CGO_ENABLED=1 CC="$BIN/$3-clang" \
+                go build -trimpath -ldflags "-s -w" -o "$F" . ) \
+              || ( cd "$W/dnstt/dnstt-client" && GOOS=linux GOARCH="$2" GOARM="$4" CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "$F" . ) \
+              || { echo "dnstt $1: FAILED"; rm -f "$F"; return 1; }
+            echo "dnstt $1: built"
+          }
+          dn arm64-v8a   arm64 aarch64-linux-android23 ""
+          dn armeabi-v7a arm   armv7a-linux-androideabi23 7
+          dn x86_64      amd64 x86_64-linux-android23 ""
+          dn x86         386   i686-linux-android23 ""
+
+          echo "=== engines in jniLibs ==="
+          ls -la "$OUT"/*/libhysteria.so "$OUT"/*/libdnstt.so 2>&1 || true
+      - name: Report engines
+        if: always()
+        run: |
+          OUT=app/src/main/jniLibs
+          for E in libhysteria.so libdnstt.so; do
+            for A in arm64-v8a armeabi-v7a x86_64 x86; do
+              if [ -s "$OUT/$A/$E" ]; then echo "OK      $E $A"; else echo "::warning::MISSING $E for $A (the app will say the engine is not included)"; fi
+            done
+          done
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
       - name: Build release APK (shrunk/obfuscated, self-signed)

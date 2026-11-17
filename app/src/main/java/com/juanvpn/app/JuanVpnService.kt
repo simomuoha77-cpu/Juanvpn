@@ -188,7 +188,7 @@ class JuanVpnService : VpnService() {
             try { eng.start(); return eng } catch (ex: Throwable) {
                 eng.stop()
                 if (stopping || Thread.currentThread().isInterrupted) return null
-                if (attempt >= max || !JuanSshEngine.transient(ex)) throw ex
+                if (ex is JuanFatalException || attempt >= max || !JuanSshEngine.transient(ex)) throw ex
                 val wait = minOf(1500L * attempt, c.delay * 1000L) + rnd.nextInt(600)
                 JuanBus.log("Attempt $attempt failed: ${JuanSshEngine.friendly(ex.cause ?: ex)} Retrying in ${"%.1f".format(wait / 1000.0)}s…")
                 post("CONNECTING", "Retrying ($attempt/${max - 1})", "")

@@ -23,7 +23,7 @@ data class JuanCfg(
     val snis: List<String> = emptyList(),          // rotating SNI names
     val payloads: List<String> = emptyList(),      // rotating payloads (separated by a line of ---)
     val pinVariant: Int = -1,                      // >= 0: smart rotation locked this copy to one combination (set by JuanRotation.pin)
-    val hyHost: String = "", val hyPort: String = "443", val hyAuth: String = "", val hySni: String = "",
+    val hyHost: String = "", val hyPort: String = "443", val hyAuth: String = "", val hyUser: String = "", val hySni: String = "",
     val hyInsecure: Boolean = false, val hyObfs: String = "", val hyUp: Int = 0, val hyDown: Int = 0,
     val dnsDomain: String = "", val dnsKey: String = "", val dnsMode: String = "udp", val dnsResolver: String = ""
 ) {
@@ -131,7 +131,7 @@ data class JuanCfg(
                 o.optBoolean("xTls", true), s("xSni").trim(), s("xWsPath").ifBlank { "/" }, s("xWsHost").trim(),
                 o.optJSONObject("_policy"),
                 proxies, snis, payloads,
-                hyHost = s("hyHost").trim(), hyPort = s("hyPort").trim().ifBlank { "443" }, hyAuth = s("hyAuth"), hySni = s("hySni").trim(),
+                hyHost = s("hyHost").trim(), hyPort = s("hyPort").trim().ifBlank { "443" }, hyAuth = s("hyAuth"), hyUser = s("hyUser").trim(), hySni = s("hySni").trim(),
                 hyInsecure = o.optBoolean("hyInsecure", false), hyObfs = s("hyObfs"), hyUp = i("hyUp", 0).coerceIn(0, 100000), hyDown = i("hyDown", 0).coerceIn(0, 100000),
                 dnsDomain = s("dnsDomain").trim().trimEnd('.'), dnsKey = s("dnsKey").trim(),
                 dnsMode = s("dnsMode").let { if (it == "doh" || it == "dot") it else "udp" }, dnsResolver = s("dnsResolver").trim()

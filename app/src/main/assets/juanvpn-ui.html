@@ -96,7 +96,7 @@ let pendingHJText='';
 const D={name:'My server',tunnel:'ssh',from:'direct',custom:true,sshHost:'',sshPort:'22',user:'',pass:'',key:'',keyPass:'',known:'',keepalive:'30',
 pHost:'',pPort:'443',pUser:'',pPass:'',sni:'',verify:true,ws:false,wsPath:'/',payload:'GET wss://[host] HTTP/1.1[crlf]Host: [host][crlf]Connection: upgrade[crlf]Upgrade: websocket[crlf][crlf]',
 dnsMode:'custom',dns1:'1.1.1.1',dns2:'1.0.0.1',dnsFwd:true,defRoute:true,ipv6:false,kill:false,routes:'',excl:'',appMode:'off',apps:[],
-reconnect:true,delay:'5',retries:'5',wake:false,hyHost:'',hyPort:'443',hyAuth:'',hySni:'',hyInsecure:false,hyObfs:'',hyUp:'',hyDown:'',dnsDomain:'',dnsKey:'',dnsMode:'udp',dnsResolver:'',ping:true,pingUrl:'clients3.google.com/generate_204',
+reconnect:true,delay:'5',retries:'5',wake:false,hyHost:'',hyPort:'443',hyAuth:'',hyUser:'',hySni:'',hyInsecure:false,hyObfs:'',hyUp:'',hyDown:'',dnsDomain:'',dnsKey:'',dnsMode:'udp',dnsResolver:'',ping:true,pingUrl:'clients3.google.com/generate_204',
 tunnel:'ssh',xProto:'vless',xHost:'',xPort:'443',xSecret:'',xMethod:'aes-256-gcm',xNet:'ws',xTls:true,xSni:'',xWsPath:'/',xWsHost:'',link:''};
 let S={...D},LOG=[],ST={state:'DISCONNECTED',detail:'',error:''},STAT={},DIRECT_IP='',LOCAL_IP='',cur='home',appsList=[],toolOut='';
 try{const r=JSON.parse(localStorage.getItem('juan.p')||'{}');SECRET.forEach(k=>delete r[k]);S={...D,...r}}catch(e){}
@@ -221,7 +221,7 @@ tunnel(){return card('Connection method',METHODS.map(m=>m[3]?`<button class="row
 :'')
 +serversCard()},
 
-hyserver(){return card('Hysteria server',f('Address','hyHost',{ph:'server.example.com'})+f('Port','hyPort',{m:'numeric',h:'One port, or a range for port hopping, for example 20000-30000.'})+f('Password','hyAuth',{t:'password'})+f('SNI','hySni',{ph:'Same as the address',h:'The name used for the TLS check.'})+sw('Allow insecure','hyInsecure','Skips the certificate check. Only for a server with a self-signed certificate.')+f('Obfuscation password','hyObfs',{t:'password',h:'Optional. Must match the server (Salamander).'}))
+hyserver(){return card('Hysteria server',f('Address','hyHost',{ph:'server.example.com'})+f('Port','hyPort',{m:'numeric',h:'One port, or a range for port hopping, for example 20000-30000.'})+f('Username','hyUser',{ph:'Optional',h:'Only if your account has a username. It is sent as username:password.'})+f('Password','hyAuth',{t:'password'})+f('SNI','hySni',{ph:'Same as the address',h:'The name used for the TLS check.'})+sw('Allow insecure','hyInsecure','Skips the certificate check. Only for a server with a self-signed certificate.')+f('Obfuscation password','hyObfs',{t:'password',h:'Optional. Must match the server (Salamander).'}))
 +card('Speed',f('Upload (Mbps)','hyUp',{m:'numeric'})+f('Download (Mbps)','hyDown',{m:'numeric',h:'Optional. Leave both empty to let the server decide.'}))
 +'<div class="note">Hysteria 2 over QUIC. It carries TCP and UDP.</div>'},
 dnstt(){const d=S.dnsMode==='doh'?'https://dns.google/dns-query':S.dnsMode==='dot'?'dns.google:853':'8.8.8.8:53';

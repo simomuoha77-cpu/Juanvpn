@@ -31,7 +31,7 @@ class JuanHyEngine(
         val host = if (c.hyHost.contains(':') && !c.hyHost.startsWith("[")) "[${c.hyHost}]" else c.hyHost
         val y = StringBuilder()
         y.append("server: ").append(q("$host:${c.hyPort}")).append('\n')
-        y.append("auth: ").append(q(c.hyAuth)).append('\n')
+        y.append("auth: ").append(q(if (c.hyUser.isNotBlank()) c.hyUser + ":" + c.hyAuth else c.hyAuth)).append('\n')
         y.append("tls:\n")
         if (c.hySni.isNotBlank()) y.append("  sni: ").append(q(c.hySni)).append('\n')
         y.append("  insecure: ").append(c.hyInsecure).append('\n')
