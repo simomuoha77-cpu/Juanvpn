@@ -79,11 +79,16 @@ object TunEngine {
     const val DNS = "10.10.10.3"
     @Volatile private var started = false
 
-    @Synchronized fun start(ctx: Context, fd: Int, socksPort: Int) {
+    /** [tx packets, tx bytes, rx packets, rx bytes] from the packet engine, or null when unavailable. */
+    fun stats(): LongArray? = try {
+        Class.forName(CLS).getMethod("TProxyGetStats").invoke(null) as? LongArray
+    } catch (_: Throwable) { null }
+
+    @Synchronized fun start(ctx: Context, fd: Int, socksPort: Int, udp: Boolean = false) {
         if (started) throw IllegalStateException("TUN engine is already running")
         val cfg = File(ctx.cacheDir, "hev.yml")
         cfg.writeText(
-            "tunnel:\n  mtu: 1500\n  ipv4: 10.10.10.2\nsocks5:\n  port: $socksPort\n  address: 127.0.0.1\n" +
+            "tunnel:\n  mtu: 1500\n  ipv4: 10.10.10.2\nsocks5:\n  port: $socksPort\n  address: 127.0.0.1\n" + (if (udp) "  udp: 'udp'\n" else "") +
             "mapdns:\n  address: $DNS\n  port: 53\n  network: 100.64.0.0\n  netmask: 255.192.0.0\n  cache-size: 10000\n" +
             "misc:\n  task-stack-size: 20480\n  connect-timeout: 5000\n  read-write-timeout: 60000\n  log-level: info\n"
         )
@@ -161,9 +166,11 @@ class JuanVpnService : VpnService() {
         return START_NOT_STICKY
     }
 
-    private fun makeEngine(c: JuanCfg): TunnelEngine =
-        if (c.tunnel == "ssh") JuanSshEngine(c, JuanBus::log, trust()) { s -> protect(s) }
-        else JuanXEngine(c, JuanBus::log) { s -> protect(s) }
+    private fun makeEngine(c: JuanCfg): TunnelEngine = when (c.tunnel) {
+        "ssh" -> JuanSshEngine(c, JuanBus::log, trust()) { s -> protect(s) }
+        "hy" -> JuanHyEngine(this, c, JuanBus::log)
+        else -> JuanXEngine(c, JuanBus::log) { s -> protect(s) }
+    }
 
     /**
      * Retries temporary failures (proxy 5xx such as 520, dropped handshakes, timeouts) with a growing,
@@ -201,8 +208,8 @@ class JuanVpnService : VpnService() {
         JuanPolicy.check(this, c)?.let { throw IllegalStateException(it) }
         c.validate()?.let { throw IllegalArgumentException(it) }
         if (live()) {
-            if (announce) post("CONNECTING", when (c.tunnel) { "smart" -> "Choosing the best route"; "ssh" -> "Opening SSH tunnel"; "ss" -> "Opening Shadowsocks tunnel"; else -> "Opening ${c.xProto.uppercase()} tunnel" }, "")
-            if (c.tunnel == "smart") smartAuto(c) else if (c.tunnel == "ssh") smartConnect(c) else legacyConnect(c)
+            if (announce) post("CONNECTING", when (c.tunnel) { "smart" -> "Choosing the best route"; "hy" -> "Opening Hysteria tunnel"; "dnstt", "dnsv2" -> "Opening DNS tunnel"; "ssh" -> "Opening SSH tunnel"; "ss" -> "Opening Shadowsocks tunnel"; else -> "Opening ${c.xProto.uppercase()} tunnel" }, "")
+            when (c.tunnel) { "smart" -> smartAuto(c); "ssh" -> smartConnect(c); "dnstt", "dnsv2" -> dnsConnect(c); else -> legacyConnect(c) }
         }
         null
     } catch (ex: Throwable) { ex }
@@ -338,6 +345,26 @@ class JuanVpnService : VpnService() {
 
     /** Shadowsocks / V2Ray profiles: no proxy combinations to rotate, so the original retry loop is kept. */
     @Volatile private var fastFail = false
+    @Volatile private var aux: java.io.Closeable? = null
+
+    /**
+     * SlowDNS / DNSTT. The DNSTT program carries one TCP connection inside DNS queries and offers it on a local port.
+     * SSH (or V2Ray / Shadowsocks) then connects to that local port instead of the real server.
+     */
+    private fun dnsConnect(c: JuanCfg) {
+        try { aux?.close() } catch (_: Exception) {}
+        val runner = JuanDnsttRunner(this, c, JuanBus::log)
+        aux = runner
+        val port = runner.start()
+        if (!live()) return
+        if (c.tunnel == "dnstt") {
+            smartConnect(c.copy(tunnel = "ssh", from = "direct", custom = false, sshHost = "127.0.0.1", sshPort = port,
+                pHost = "", payload = "", proxies = emptyList(), snis = emptyList(), payloads = emptyList()))
+        } else {
+            legacyConnect(c.copy(tunnel = if (c.xProto == "ss") "ss" else "v2",
+                xSni = c.xSni.ifBlank { c.xHost }, xWsHost = c.xWsHost.ifBlank { c.xHost }, xHost = "127.0.0.1", xPort = port))
+        }
+    }
 
     /**
      * Smart profile. Tries the SSH route (with all its proxy / SNI / payload combinations) and the V2Ray / Shadowsocks
@@ -345,10 +372,10 @@ class JuanVpnService : VpnService() {
      * of them fail the user gets one clear message.
      */
     private fun smartAuto(c: JuanCfg) {
-        val routes = listOfNotNull(c.sshVariant()?.let { "ssh" to it }, c.xVariant()?.let { "x" to it })
-        if (routes.isEmpty()) throw JuanFatalException("Add an SSH server or a V2Ray / Shadowsocks server")
+        val routes = listOfNotNull(c.sshVariant()?.let { "ssh" to it }, c.xVariant()?.let { "x" to it }, c.hyVariant()?.let { "hy" to it })
+        if (routes.isEmpty()) throw JuanFatalException("Add an SSH, V2Ray / Shadowsocks or Hysteria server")
         val sp = getSharedPreferences("juan_smart", Context.MODE_PRIVATE)
-        val key = "last_" + (c.sshHost + "|" + c.xHost).hashCode()
+        val key = "last_" + (c.sshHost + "|" + c.xHost + "|" + c.hyHost).hashCode()
         val last = sp.getString(key, "") ?: ""
         val order = routes.sortedBy { if (it.first == last) 0 else 1 }
         var lastErr: Throwable? = null
@@ -467,7 +494,7 @@ class JuanVpnService : VpnService() {
         tunFd = pfd.detachFd()   // native code may close it; Java must not double-close (fdsan)
         if (!live()) throw JuanConnException(JuanFail.CANCELLED, "Cancelled by user")
         JuanBus.log("TUN: interface up, starting native engine")
-        try { TunEngine.start(this, tunFd, e.socksPort) } catch (ex: IllegalStateException) {
+        try { TunEngine.start(this, tunFd, e.socksPort, c.tunnel == "hy") } catch (ex: IllegalStateException) {
             if (ex.message?.contains("not bundled") == true) throw JuanFatalException(ex.message ?: "TUN engine missing")
             throw JuanConnException(JuanFail.TUN_INIT, ex.message ?: "TUN engine failed to start", ex)
         }
@@ -483,7 +510,7 @@ class JuanVpnService : VpnService() {
     /** Only called after every stage (including the traffic check) passed. */
     private fun finishConnected(c: JuanCfg, e: TunnelEngine) {
         t0 = System.currentTimeMillis()
-        post("CONNECTED", if (c.tunnel == "ssh") "SSH tunnel active" else "${c.xProto.uppercase()} tunnel active", "")
+        post("CONNECTED", when (c.tunnel) { "ssh" -> "SSH tunnel active"; "hy" -> "Hysteria tunnel active"; else -> "${c.xProto.uppercase()} tunnel active" }, "")
         startStats(e)
         registerMonitor()
         JuanBus.socksPort = e.socksPort
@@ -615,6 +642,7 @@ class JuanVpnService : VpnService() {
 
     @Synchronized private fun teardown() {
         lastDown = System.currentTimeMillis()
+        try { aux?.close() } catch (_: Exception) {}; aux = null
         stopping = true
         holdTun = false
         unregisterMonitor()

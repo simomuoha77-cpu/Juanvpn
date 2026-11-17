@@ -31,6 +31,11 @@ android {
     kotlinOptions { jvmTarget = "17" }
     // Resolve the duplicate multi-release JAR metadata reported by Android packaging.
     packaging {
+        // Hysteria and DNSTT are programs shipped as lib*.so. They must be unpacked so they can be started.
+        jniLibs {
+            useLegacyPackaging = true
+            keepDebugSymbols += setOf("**/libhysteria.so", "**/libdnstt.so")
+        }
         resources {
             excludes += "META-INF/versions/*/OSGI-INF/MANIFEST.MF"
             excludes += "META-INF/MANIFEST.MF"

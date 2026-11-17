@@ -22,16 +22,36 @@ data class JuanCfg(
     val proxies: List<ProxyEntry> = emptyList(),   // rotating remote proxies / fronts
     val snis: List<String> = emptyList(),          // rotating SNI names
     val payloads: List<String> = emptyList(),      // rotating payloads (separated by a line of ---)
-    val pinVariant: Int = -1                       // >= 0: smart rotation locked this copy to one combination (set by JuanRotation.pin)
+    val pinVariant: Int = -1,                      // >= 0: smart rotation locked this copy to one combination (set by JuanRotation.pin)
+    val hyHost: String = "", val hyPort: String = "443", val hyAuth: String = "", val hySni: String = "",
+    val hyInsecure: Boolean = false, val hyObfs: String = "", val hyUp: Int = 0, val hyDown: Int = 0,
+    val dnsDomain: String = "", val dnsKey: String = "", val dnsMode: String = "udp", val dnsResolver: String = ""
 ) {
     /** Smart profile: the SSH side and the V2Ray / Shadowsocks side, each only when it is filled in correctly. */
     fun sshVariant(): JuanCfg? = copy(tunnel = "ssh").takeIf { it.validateSsh() == null }
+    fun hyVariant(): JuanCfg? = copy(tunnel = "hy").takeIf { it.validateHy() == null }
     fun xVariant(): JuanCfg? = copy(tunnel = if (xProto == "ss") "ss" else "v2").takeIf { it.validateX() == null }
 
     fun validate(): String? = when (tunnel) {
-        "smart" -> if (sshVariant() == null && xVariant() == null) "Add an SSH server or a V2Ray / Shadowsocks server" else null
+        "smart" -> if (sshVariant() == null && xVariant() == null && hyVariant() == null) "Add an SSH, V2Ray / Shadowsocks or Hysteria server" else null
         "ssh" -> validateSsh()
+        "hy" -> validateHy()
+        "dnstt" -> validateDns() ?: copy(tunnel = "ssh", from = "direct", sshHost = "127.0.0.1").validateSsh()
+        "dnsv2" -> validateDns() ?: copy(tunnel = if (xProto == "ss") "ss" else "v2", xHost = xHost.ifBlank { "localhost" }).validateX()
         else -> validateX()
+    }
+
+    private fun validateHy(): String? = when {
+        hyHost.isBlank() -> "Hysteria server address is required"
+        !Regex("\\d{1,5}(-\\d{1,5})?(,\\d{1,5}(-\\d{1,5})?)*").matches(hyPort) -> "Hysteria port must be a number or a range like 20000-30000"
+        hyAuth.isEmpty() -> "Hysteria password is required"
+        else -> null
+    }
+
+    private fun validateDns(): String? = when {
+        dnsDomain.isBlank() -> "Name server domain is required"
+        !Regex("[0-9a-fA-F]{64}").matches(dnsKey) -> "The DNSTT public key must be 64 hex characters"
+        else -> null
     }
 
     private fun validateSsh(): String? = when {
@@ -48,7 +68,6 @@ data class JuanCfg(
     }
 
     private fun validateX(): String? = when {
-        tunnel == "hy" -> "Hysteria needs a QUIC engine that is not bundled in this build"
         xHost.isBlank() -> "Server address is required"
         xPort !in 1..65535 -> "Server port must be 1-65535"
         xSecret.isBlank() -> if (xProto == "vless" || xProto == "vmess") "UUID is required" else "Password is required"
@@ -104,14 +123,18 @@ data class JuanCfg(
                 s("appMode").ifBlank { "off" }, (0 until (arr?.length() ?: 0)).map { arr!!.getString(it) },
                 o.optBoolean("verify", true),
                 o.optBoolean("reconnect", true), i("delay", 5).coerceIn(1, 60), i("retries", 5).coerceIn(1, 10),
-                when (s("tunnel")) { "v2", "ss", "hy", "smart" -> s("tunnel"); else -> "ssh" },
-                when (s("tunnel")) { "ss" -> "ss"; "v2" -> s("xProto").let { if (it == "trojan" || it == "vmess") it else "vless" }; "smart" -> s("xProto").let { if (it == "trojan" || it == "vmess" || it == "ss") it else "vless" }; else -> "vless" },
+                when (s("tunnel")) { "v2", "ss", "hy", "smart", "dnstt", "dnsv2" -> s("tunnel"); else -> "ssh" },
+                when (s("tunnel")) { "ss" -> "ss"; "v2" -> s("xProto").let { if (it == "trojan" || it == "vmess") it else "vless" }; "smart", "dnsv2" -> s("xProto").let { if (it == "trojan" || it == "vmess" || it == "ss") it else "vless" }; else -> "vless" },
                 s("xHost").trim(), i("xPort", 443), s("xSecret").trim(),
                 s("xMethod").ifBlank { "aes-256-gcm" }.lowercase(),
                 if (s("xNet") == "ws") "ws" else "tcp",
                 o.optBoolean("xTls", true), s("xSni").trim(), s("xWsPath").ifBlank { "/" }, s("xWsHost").trim(),
                 o.optJSONObject("_policy"),
-                proxies, snis, payloads
+                proxies, snis, payloads,
+                hyHost = s("hyHost").trim(), hyPort = s("hyPort").trim().ifBlank { "443" }, hyAuth = s("hyAuth"), hySni = s("hySni").trim(),
+                hyInsecure = o.optBoolean("hyInsecure", false), hyObfs = s("hyObfs"), hyUp = i("hyUp", 0).coerceIn(0, 100000), hyDown = i("hyDown", 0).coerceIn(0, 100000),
+                dnsDomain = s("dnsDomain").trim().trimEnd('.'), dnsKey = s("dnsKey").trim(),
+                dnsMode = s("dnsMode").let { if (it == "doh" || it == "dot") it else "udp" }, dnsResolver = s("dnsResolver").trim()
             )
         }
     }

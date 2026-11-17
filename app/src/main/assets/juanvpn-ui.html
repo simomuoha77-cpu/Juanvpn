@@ -85,7 +85,7 @@ details{border-top:1px solid var(--ln);padding:12px 16px}details:first-of-type{b
 const VER='2.9.2',$=s=>document.querySelector(s);
 const I={menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',back:'<path d="M15 5l-7 7 7 7"/>',gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',plus:'<path d="M12 5v14M5 12h14"/>',ch:'<path d="M9 5l7 7-7 7"/>',ed:'<path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/>'};
 const ic=(n,c='')=>`<svg class="${c}" viewBox="0 0 24 24">${I[n]}</svg>`;
-const SECRET=['pass','key','keyPass','pPass','xSecret'];
+const SECRET=['pass','key','keyPass','pPass','xSecret','hyAuth','hyObfs'];
 const HJ_D={fileName:'juanvpn-config',includeSSH:true,includeV2Ray:true,includeHysteria:false,includeShadowsocks:false,lockConfig:true,lockAll:false,payload:true,remoteProxy:true,proxyAuth:false,sni:true,sshHostPort:true,sshAuth:true,v2Editor:true,v2ServerPort:true,v2Password:true,dnsResolver:false,dnsttSettings:false,mobileDataOnly:false,lockMobileOperator:false,attestDevice:false,blockRooted:false,playStoreOnly:false,deviceIdLock:false,expiry:false,loginSshDeviceId:false,disableUserOverwrite:false,disallowTorrent:false,gamingMode:false,expiryDate:'',deviceIds:'',operatorCodes:'',notes:'',password:'',confirmPassword:''};
 let HJ={...HJ_D};
 try{HJ={...HJ,...JSON.parse(localStorage.getItem('juan.hj')||'{}')}}catch(e){}
@@ -96,7 +96,7 @@ let pendingHJText='';
 const D={name:'My server',tunnel:'ssh',from:'direct',custom:true,sshHost:'',sshPort:'22',user:'',pass:'',key:'',keyPass:'',known:'',keepalive:'30',
 pHost:'',pPort:'443',pUser:'',pPass:'',sni:'',verify:true,ws:false,wsPath:'/',payload:'GET wss://[host] HTTP/1.1[crlf]Host: [host][crlf]Connection: upgrade[crlf]Upgrade: websocket[crlf][crlf]',
 dnsMode:'custom',dns1:'1.1.1.1',dns2:'1.0.0.1',dnsFwd:true,defRoute:true,ipv6:false,kill:false,routes:'',excl:'',appMode:'off',apps:[],
-reconnect:true,delay:'5',retries:'5',wake:false,ping:true,pingUrl:'clients3.google.com/generate_204',
+reconnect:true,delay:'5',retries:'5',wake:false,hyHost:'',hyPort:'443',hyAuth:'',hySni:'',hyInsecure:false,hyObfs:'',hyUp:'',hyDown:'',dnsDomain:'',dnsKey:'',dnsMode:'udp',dnsResolver:'',ping:true,pingUrl:'clients3.google.com/generate_204',
 tunnel:'ssh',xProto:'vless',xHost:'',xPort:'443',xSecret:'',xMethod:'aes-256-gcm',xNet:'ws',xTls:true,xSni:'',xWsPath:'/',xWsHost:'',link:''};
 let S={...D},LOG=[],ST={state:'DISCONNECTED',detail:'',error:''},STAT={},DIRECT_IP='',LOCAL_IP='',cur='home',appsList=[],toolOut='';
 try{const r=JSON.parse(localStorage.getItem('juan.p')||'{}');SECRET.forEach(k=>delete r[k]);S={...D,...r}}catch(e){}
@@ -168,18 +168,29 @@ const METHODS=[
 ['httpslp','HTTP Proxy + SSL + Payload','',{tunnel:'ssh',from:'tls',custom:true}],
 ['v2','V2Ray / Xray','VMess, VLESS, Trojan',{tunnel:'v2'}],
 ['ss','Shadowsocks','',{tunnel:'ss'}],
-['dnstt','SlowDNS (DNSTT)','',null,'Needs DNSTT engine'],
-['dnsv2','DNSTT + V2Ray','',null,'Needs DNSTT engine'],
-['hy','Hysteria','',null,'Needs QUIC engine']];
-const methodId=()=>{if(S.tunnel==='smart')return'smart';if(S.tunnel==='v2')return'v2';if(S.tunnel==='ss')return'ss';if(S.tunnel!=='ssh')return'';const f=S.from,c=!!S.custom;return f==='direct'?'ssh':f==='dpay'?'sshp':f==='sni'?(c?'sshlp':'sshl'):f==='http'?(c?'httpp':'http'):f==='tls'&&c?'httpslp':''};
+['dnstt','SlowDNS (DNSTT)','SSH over DNS',{tunnel:'dnstt'}],
+['dnsv2','DNSTT + V2Ray','V2Ray over DNS',{tunnel:'dnsv2'}],
+['hy','Hysteria','QUIC with UDP',{tunnel:'hy'}]];
+const methodId=()=>{if(S.tunnel==='smart')return'smart';if(S.tunnel==='v2')return'v2';if(S.tunnel==='ss')return'ss';if(S.tunnel==='hy'||S.tunnel==='dnstt'||S.tunnel==='dnsv2')return S.tunnel;if(S.tunnel!=='ssh')return'';const f=S.from,c=!!S.custom;return f==='direct'?'ssh':f==='dpay'?'sshp':f==='sni'?(c?'sshlp':'sshl'):f==='http'?(c?'httpp':'http'):f==='tls'&&c?'httpslp':''};
 const methodName=()=>{const m=METHODS.find(x=>x[0]===methodId());return m?m[1]:(S.tunnel==='ssh'?'SSH (custom)':XN[S.tunnel]||'')};
+const homeRows=()=>{const t=S.tunnel,xr=go('xserver',['V2Ray / Shadowsocks server',xdesc()]),hr=go('hyserver',['Hysteria server',hydesc()]),dr=go('dnstt',['DNS tunnel',dnsdesc()]);
+return t==='smart'?card('',sshRow()+xr+hr):t==='ssh'?card('',sshRow()):t==='hy'?card('',hr):t==='dnstt'?card('',dr+sshRow()):t==='dnsv2'?card('',dr+xr):card('',go('xserver',[XN[t]+' server',xdesc()]))};
+const serversCard=()=>{const t=S.tunnel,xr=go('xserver',['V2Ray / Shadowsocks server',xdesc()]),hr=go('hyserver',['Hysteria server',hydesc()]),dr=go('dnstt',['DNS tunnel',dnsdesc()]);
+if(t==='ssh')return '';
+if(t==='smart')return card('Servers',sshRow()+xr+hr)+'<div class="note">Smart tries your SSH server (with the proxy, SNI and payload above), your V2Ray / Shadowsocks server and your Hysteria server. It starts with the one that worked last and switches by itself when one fails. Fill in any of them.</div>';
+if(t==='hy')return card('',hr)+'<div class="note">Hysteria runs over UDP (QUIC) and also carries the UDP traffic of your apps, such as calls and games. Some networks block UDP; then Hysteria cannot connect.</div>';
+if(t==='dnstt')return card('',dr+sshRow())+'<div class="note">SlowDNS carries your SSH connection inside DNS queries. Set the DNS tunnel, then your SSH login (the SSH host is not used). Your DNSTT server must forward to its SSH port. It is slow but works where little else does.</div>';
+if(t==='dnsv2')return card('',dr+xr)+'<div class="note">Your V2Ray / Shadowsocks connection travels inside DNS queries. Your DNSTT server must forward to your V2Ray port. The V2Ray address is only used as the TLS / WebSocket name.</div>';
+return card('',xr.replace('V2Ray / Shadowsocks server',XN[t]+' server'))+'<div class="note">VMess, VLESS and Trojan work over TCP, TLS and WebSocket on any port. REALITY, XTLS flow and gRPC are not available in this build. VMess needs the phone clock to be accurate.</div>'};
 const SSHY=()=>S.tunnel==='ssh'||S.tunnel==='smart';
 const sshRow=()=>go('ssh',['SSH server',S._hjLocked?'Locked configuration':(S.user&&S.sshHost)?S.user+'@'+S.sshHost+':'+S.sshPort:'Not set']);
-const XN={smart:'Smart (auto)',ssh:'Secure Shell (SSH)',v2:'V2Ray / Xray',ss:'Shadowsocks',hy:'Hysteria'};
+const XN={hy:'Hysteria',dnstt:'SlowDNS (DNSTT)',dnsv2:'DNSTT + V2Ray',smart:'Smart (auto)',ssh:'Secure Shell (SSH)',v2:'V2Ray / Xray',ss:'Shadowsocks',hy:'Hysteria'};
 const xdesc=()=>S._hjLocked?'Locked configuration':S.xHost?`${S.tunnel==='ss'?'ss':S.xProto}://${S.xHost}:${S.xPort}`+(S.xNet==='ws'?' · ws':'')+(S.xTls?' · tls':''):'Not set';
 const PAY=['http','tls','ws','sni','dpay'];
 const payOn=()=>PAY.includes(S.from)&&(S.custom||S.from==='dpay');
-const sum=()=>S.tunnel==='smart'?'SSH + V2Ray / Shadowsocks · picks the best route':S.tunnel!=='ssh'?`${XN[S.tunnel]} · ${S.tunnel==='ss'?'Shadowsocks':S.xProto.toUpperCase()}${S.xNet==='ws'?' + WebSocket':''}${S.xTls?' + TLS':''}`:`SSH ← ${FROM[S.from]}${payOn()?' (custom payload)':''}`;
+const hydesc=()=>S._hjLocked?'Locked configuration':S.hyHost?`hysteria2://${S.hyHost}:${S.hyPort}`+(S.hyObfs?' · obfs':''):'Not set';
+const dnsdesc=()=>S._hjLocked?'Locked configuration':S.dnsDomain?S.dnsDomain+' · '+(S.dnsMode==='doh'?'DoH':S.dnsMode==='dot'?'DoT':'UDP'):'Not set';
+const sum=()=>S.tunnel==='hy'?'Hysteria · QUIC, carries UDP':S.tunnel==='dnstt'?'SSH over DNS (DNSTT)':S.tunnel==='dnsv2'?'V2Ray over DNS (DNSTT)':S.tunnel==='smart'?'SSH + V2Ray / Shadowsocks · picks the best route':S.tunnel!=='ssh'?`${XN[S.tunnel]} · ${S.tunnel==='ss'?'Shadowsocks':S.xProto.toUpperCase()}${S.xNet==='ws'?' + WebSocket':''}${S.xTls?' + TLS':''}`:`SSH ← ${FROM[S.from]}${payOn()?' (custom payload)':''}`;
 const preview=()=>{const h=S.sshHost||'host',p=S.sshPort||'22';return esc(String(S.payload).split(/^[ \t]*-{3,}[ \t]*$/m)[0].trim().replace(/\[(host|ssh_host)\]/gi,h).replace(/\[(port|ssh_port)\]/gi,p).replace(/\[(host_port|ssh)\]/gi,h+':'+p).replace(/\[protocol\]/gi,'HTTP/1.1').replace(/\[method\]/gi,'CONNECT').replace(/\[(netdata|raw|realdata)\]/gi,'CONNECT '+h+':'+p+' HTTP/1.1').replace(/\[ua\]/gi,'Mozilla/5.0 (Linux; Android 13) …').replace(/\[sni\]/gi,S.sni||h).replace(/\[crlf\]/gi,'\\r\\n').replace(/\[lf\]/gi,'\\n').replace(/\[cr\]/gi,'\\r').replace(/\[rotate=([^\]]*)\]/gi,(m,x)=>x.split(';')[0]).replace(/\[(split|instant_split|delay_split)\]/gi,' ⟂ '))};
 const modal=x=>{$('#sh').innerHTML=x;$('#md').classList.add('on')},unmodal=()=>$('#md').classList.remove('on');
 const mf=(l,k,m)=>`<div class="fld" style="padding:0 0 12px;border:0"><label>${l}</label><input data-k="${k}" value="${esc(S[k])}" ${m?'inputmode="numeric"':''} autocapitalize="off" spellcheck="false"></div>`;
@@ -199,7 +210,7 @@ ${card('',`<div class="st ${ST.state}"><span class="dot"></span><div style="flex
 ${HJ.notes&&String(HJ.notes).trim()?card('Message from config owner',`<div class="fld" style="white-space:pre-wrap;line-height:1.5">${esc(HJ.notes)}</div>`):''}
 ${card('',go('tunnel',[methodName(),sum()]))}
 ${S._hjLocked?'':!SSHY()?'':payOn()?card('Payload',`<div class="fld" style="border:0"><textarea data-k="payload" spellcheck="false" autocapitalize="off" style="min-height:110px">${esc(S.payload)}</textarea></div>`+edRows()):(edRows()?card('',edRows()):'')}
-${S.tunnel==='smart'?card('',sshRow()+go('xserver',['V2Ray / Shadowsocks server',xdesc()])):S.tunnel==='ssh'?card('',sshRow()):card('',go('xserver',[XN[S.tunnel]+' server',xdesc()]))}
+${homeRows()}
 ${card('',`<label class="row"><div class="t"><b>${S._hjLocked?'DNS settings locked':`DNS (${S.dnsMode==='auto'?'Automatic':esc(S.dns1)})`}</b><small>${S._hjLocked?'Details hidden':S.dnsFwd?'Forwarded through tunnel':'Resolved locally'}</small></div></label>`+go('dns',['DNS and routing',S._hjLocked?'Locked':'Servers, routes, kill switch']))}
 ${card('',`<button class="row" data-act="tg" style="border:0;width:100%;text-align:left"><div class="t"><b>✈ Join our Telegram</b><small>Updates, configs and support · t.me/hometechnol</small></div></button>`)}`},
 
@@ -208,10 +219,17 @@ tunnel(){return card('Connection method',METHODS.map(m=>m[3]?`<button class="row
 +card('Options',sw('Custom payload','custom','Sent before the SSH handshake over HTTP, TLS or WebSocket transports.',1))
 +'<div class="note">Direct + SNI connects straight to your server over TLS with the server name you choose. Leave the front address empty to use the SSH host.</div>'
 :'')
-+(S.tunnel==='smart'?card('Servers',sshRow()+go('xserver',['V2Ray / Shadowsocks server',xdesc()]))+'<div class="note">Smart tries your SSH server (with the proxy, SNI and payload above) and your V2Ray / Shadowsocks server. It starts with the one that worked last and switches by itself when one fails. Fill in one or both.</div>'
-:S.tunnel!=='ssh'?card('',go('xserver',[XN[S.tunnel]+' server',xdesc()]))+'<div class="note">VMess, VLESS and Trojan work over TCP, TLS and WebSocket on any port. REALITY, XTLS flow, gRPC and Hysteria (QUIC) are not available in this build. VMess needs the phone clock to be accurate.</div>':'')},
++serversCard()},
 
-xserver(){const sm=S.tunnel==='smart',v2=S.tunnel==='v2'||sm,ss=S.tunnel==='ss'||(sm&&S.xProto==='ss');
+hyserver(){return card('Hysteria server',f('Address','hyHost',{ph:'server.example.com'})+f('Port','hyPort',{m:'numeric',h:'One port, or a range for port hopping, for example 20000-30000.'})+f('Password','hyAuth',{t:'password'})+f('SNI','hySni',{ph:'Same as the address',h:'The name used for the TLS check.'})+sw('Allow insecure','hyInsecure','Skips the certificate check. Only for a server with a self-signed certificate.')+f('Obfuscation password','hyObfs',{t:'password',h:'Optional. Must match the server (Salamander).'}))
++card('Speed',f('Upload (Mbps)','hyUp',{m:'numeric'})+f('Download (Mbps)','hyDown',{m:'numeric',h:'Optional. Leave both empty to let the server decide.'}))
++'<div class="note">Hysteria 2 over QUIC. It carries TCP and UDP.</div>'},
+dnstt(){const d=S.dnsMode==='doh'?'https://dns.google/dns-query':S.dnsMode==='dot'?'dns.google:853':'8.8.8.8:53';
+return card('DNS tunnel',f('Name server domain','dnsDomain',{ph:'t.example.com',h:'The NS domain that points to your DNSTT server.'})+f('Server public key','dnsKey',{ph:'64 hex characters'})
++`<div class="fld"><label>Resolver type</label><select data-k="dnsMode" data-re><option value="udp" ${S.dnsMode==='udp'?'selected':''}>UDP</option><option value="doh" ${S.dnsMode==='doh'?'selected':''}>DNS over HTTPS</option><option value="dot" ${S.dnsMode==='dot'?'selected':''}>DNS over TLS</option></select></div>`
++f('Resolver','dnsResolver',{ph:d,h:'Leave empty to use '+d+'.'}))
++'<div class="note">'+(S.tunnel==='dnsv2'?'Set your V2Ray / Shadowsocks server under its own page.':'Set your SSH login under SSH server.')+'</div>'},
+xserver(){const sm=S.tunnel==='smart'||S.tunnel==='dnsv2',v2=S.tunnel==='v2'||sm,ss=S.tunnel==='ss'||(sm&&S.xProto==='ss');
 return card('Import',`<div class="fld"><label>Paste a share link</label><textarea data-k="link" spellcheck="false" autocapitalize="off" placeholder="vmess://… vless://… trojan://… ss://…" style="min-height:70px">${esc(S.link)}</textarea></div><div class="btns"><button class="btn sm pri" data-act="impLink">Import link</button></div>`)
 +card('Server',(v2?`<div class="fld"><label>Protocol</label><select data-k="xProto" data-re><option value="vless" ${S.xProto==='vless'?'selected':''}>VLESS</option><option value="vmess" ${S.xProto==='vmess'?'selected':''}>VMess</option><option value="trojan" ${S.xProto==='trojan'?'selected':''}>Trojan</option>${sm?`<option value="ss" ${S.xProto==='ss'?'selected':''}>Shadowsocks</option>`:''}</select></div>`:'')
 +f('Address','xHost',{ph:'server.example.com'})+f('Port','xPort',{m:'numeric'})
@@ -241,7 +259,7 @@ dns(){return card('DNS',`<div class="fld"><label>Mode</label><select data-k="dns
 apps(){return card('Mode',`<div class="fld"><select data-k="appMode" data-re><option value="off" ${S.appMode==='off'?'selected':''}>Off — route all apps</option><option value="inc" ${S.appMode==='inc'?'selected':''}>Only selected apps</option><option value="exc" ${S.appMode==='exc'?'selected':''}>All except selected</option></select></div>`)
 +(S.appMode==='off'?'':card('Installed apps',appsList.length?appsList.map(a=>`<label class="ap"><div class="t"><b>${esc(a.name)}</b><small>${esc(a.pkg)}</small></div><input type="checkbox" class="sw" data-app="${esc(a.pkg)}" ${S.apps.includes(a.pkg)?'checked':''}></label>`).join(''):'<div class="fld"><div class="h" style="margin:0">No app list yet. The Android layer supplies installed apps when this screen opens.</div></div>'))},
 
-settings(){return card('Device',go('deviceid',['Device ID',deviceId()]))+card('Tunnel',go('tunnel',[methodName(),sum()])+go('ssh',['SSH server','Host, auth, host key'])+go('xserver',['V2Ray / Shadowsocks server','Address, UUID or password, transport'])+go('dns',['DNS and routing','']))
+settings(){return card('Device',go('deviceid',['Device ID',deviceId()]))+card('Tunnel',go('tunnel',[methodName(),sum()])+go('ssh',['SSH server','Host, auth, host key'])+go('xserver',['V2Ray / Shadowsocks server','Address, UUID or password, transport'])+go('hyserver',['Hysteria server','Address, password, SNI'])+go('dnstt',['DNS tunnel','Domain, key, resolver'])+go('dns',['DNS and routing','']))
 +card('Reliability',sw('Auto reconnect','reconnect','Reconnects after airplane mode, signal loss or a network switch.',1)+(S.reconnect?f('Delay (seconds)','delay',{m:'numeric'})+f('Max retries','retries',{m:'numeric',h:'Stops early on bad credentials or an unreachable server.'}):'')+sw('CPU wake lock','wake','Fewer drops with the screen off. Uses more battery.')+`<button class="row" data-act="batt"><div class="t"><b>Battery optimization</b><small>Exempt JUAN VPN so it stays alive</small></div>${ic('ch','ch')}</button>`)
 +card('HTTP ping',sw('HTTP ping','ping','Measures the speed of the connection every few seconds. Shown in the log and on Home: green is fast, amber is average, red is slow.',1)+(S.ping?f('Ping URL','pingUrl',{ph:'clients3.google.com/generate_204'}):''))
 +card('Notifications',`<button class="row" data-act="notif"><div class="t"><b>Allow notifications</b><small>Needed for the Disconnect action on Android 13+</small></div>${ic('ch','ch')}</button>`)
@@ -297,12 +315,12 @@ return card('Guides',h.map(([a,b])=>`<details><summary>${a}</summary><p>${b}</p>
 
 about(){return card('',`<div class="st" style="display:block"><b style="font-size:22px">JUAN VPN</b><div style="color:var(--ac);font-size:13px">Version ${VER}</div><p style="color:#c3cfe2">Use only with servers and networks you own or are authorised to use.</p></div>`+['Privacy policy','Terms of service','Support','Open-source licences'].map(x=>`<div class="row"><div class="t"><b>${x}</b></div></div>`).join(''))}
 };
-const T={importsel:'Select File',home:'JUAN VPN',tunnel:'Tunnel type',xserver:'Proxy server',ssh:'SSH server',tls:'Proxy and TLS',payload:'Payload',dns:'DNS and routing',apps:'Apps filter',settings:'Settings',servers:'Servers',exporter:'Config Exporter',deviceid:'Device ID',log:'JUAN VPN',tools:'JUAN VPN',help:'JUAN VPN',about:'About'};
-const TAB=['home','log','tools','help'],PAR={importsel:'servers',deviceid:'home',exporter:'servers',apps:'dns',tunnel:'home',xserver:'home',ssh:'home',tls:'home',payload:'home',dns:'home'};
-const MENU=[['home','Home'],['servers','Servers'],['importsel','Import config'],['ssh','SSH server'],['xserver','V2Ray / Shadowsocks server'],['tunnel','Tunnel type'],['payload','Payload'],['dns','DNS and routing'],0,['log','Logs'],['tools','Tools'],['deviceid','Device ID'],['settings','Settings'],['help','Help'],['tg','Join Telegram'],['about','About']];
+const T={importsel:'Select File',home:'JUAN VPN',tunnel:'Tunnel type',xserver:'Proxy server',hyserver:'Hysteria server',dnstt:'DNS tunnel',ssh:'SSH server',tls:'Proxy and TLS',payload:'Payload',dns:'DNS and routing',apps:'Apps filter',settings:'Settings',servers:'Servers',exporter:'Config Exporter',deviceid:'Device ID',log:'JUAN VPN',tools:'JUAN VPN',help:'JUAN VPN',about:'About'};
+const TAB=['home','log','tools','help'],PAR={importsel:'servers',deviceid:'home',exporter:'servers',apps:'dns',tunnel:'home',xserver:'home',hyserver:'home',dnstt:'home',ssh:'home',tls:'home',payload:'home',dns:'home'};
+const MENU=[['home','Home'],['servers','Servers'],['importsel','Import config'],['ssh','SSH server'],['xserver','V2Ray / Shadowsocks server'],['hyserver','Hysteria server'],['dnstt','DNS tunnel'],['tunnel','Tunnel type'],['payload','Payload'],['dns','DNS and routing'],0,['log','Logs'],['tools','Tools'],['deviceid','Device ID'],['settings','Settings'],['help','Help'],['tg','Join Telegram'],['about','About']];
 
 const SAFE_LOCKED=['reconnect','delay','retries','wake','ping','pingUrl','tHost'];
-function render(){const y=scrollY;const lp0=document.querySelector('.logpre');const stick=lp0?(lp0.scrollHeight-lp0.scrollTop-lp0.clientHeight<60):true,lt=lp0?lp0.scrollTop:0;const hiddenWhenLocked=['exporter','tunnel','xserver','ssh','tls','payload','dns'];$('#v').innerHTML=S._hjLocked&&hiddenWhenLocked.includes(cur)?card('Configuration locked','<div class="fld">Server details, host names, payloads and credentials are hidden. This profile can connect, but its settings cannot be viewed or edited.</div>'):V[cur]();$('#ttl').textContent=T[cur];if(S._hjLocked&&cur!=='tools')$('#v').querySelectorAll('input:not(#fi),textarea,select').forEach(x=>{if(!SAFE_LOCKED.includes(x.dataset.k)&&!x.dataset.app)x.disabled=true});else{const locks={payload:['payload'],remoteProxy:['pHost','pPort'],proxyAuth:['pUser','pPass'],sni:['sni','xSni'],sshHostPort:['sshHost','sshPort'],sshAuth:['user','pass','key','keyPass'],v2Editor:['xProto'],v2ServerPort:['xHost','xPort'],v2Password:['xSecret'],disableUserOverwrite:['tunnel','xHost','xPort','sshHost','sshPort','xProto'],dnsResolver:['dnsMode','dns1','dns2'],dnsttSettings:['routes','excl']};Object.entries(locks).forEach(([k,fields])=>{if(S._imported&&HJ[k])fields.forEach(f=>$('#v').querySelectorAll(`[data-k="${f}"]`).forEach(x=>x.disabled=true))})}
+function render(){const y=scrollY;const lp0=document.querySelector('.logpre');const stick=lp0?(lp0.scrollHeight-lp0.scrollTop-lp0.clientHeight<60):true,lt=lp0?lp0.scrollTop:0;const hiddenWhenLocked=['exporter','tunnel','xserver','ssh','tls','payload','dns','hyserver','dnstt'];$('#v').innerHTML=S._hjLocked&&hiddenWhenLocked.includes(cur)?card('Configuration locked','<div class="fld">Server details, host names, payloads and credentials are hidden. This profile can connect, but its settings cannot be viewed or edited.</div>'):V[cur]();$('#ttl').textContent=T[cur];if(S._hjLocked&&cur!=='tools')$('#v').querySelectorAll('input:not(#fi),textarea,select').forEach(x=>{if(!SAFE_LOCKED.includes(x.dataset.k)&&!x.dataset.app)x.disabled=true});else{const locks={payload:['payload'],remoteProxy:['pHost','pPort'],proxyAuth:['pUser','pPass'],sni:['sni','xSni'],sshHostPort:['sshHost','sshPort'],sshAuth:['user','pass','key','keyPass'],v2Editor:['xProto'],v2ServerPort:['xHost','xPort'],v2Password:['xSecret'],disableUserOverwrite:['tunnel','xHost','xPort','sshHost','sshPort','xProto'],dnsResolver:['dnsMode','dns1','dns2'],dnsttSettings:['routes','excl']};Object.entries(locks).forEach(([k,fields])=>{if(S._imported&&HJ[k])fields.forEach(f=>$('#v').querySelectorAll(`[data-k="${f}"]`).forEach(x=>x.disabled=true))})}
 const tab=TAB.includes(cur),sub=!tab&&cur!=='servers'&&cur!=='settings'&&cur!=='about'||PAR[cur];
 $('#tabs').style.display=tab?'flex':'none';$('#tabs').innerHTML=TAB.map(t=>`<button class="${t===cur?'on':''}" data-go="${t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join('');
 $('#lead').innerHTML=ic(tab?'menu':'back');$('#lead').dataset.mode=tab?'menu':'back';$('#gear').innerHTML=ic('gear');$('#gear').style.visibility=tab?'visible':'hidden';$('#quick').innerHTML=ic('plus');$('#quick').style.visibility=tab?'visible':'hidden';scrollTo(0,y);const lp1=document.querySelector('.logpre');if(lp1)lp1.scrollTop=stick?lp1.scrollHeight:lt}
@@ -313,7 +331,9 @@ $('#lead').onclick=()=>$('#lead').dataset.mode==='menu'?document.body.classList.
 $('#gear').onclick=()=>nav('settings');$('#quick').onclick=()=>ACT.quick();
 
 /* actions */
-function validate(){const e=[];if(S.tunnel==='smart'){const sshOk=S.sshHost.trim()&&(S.user.trim()||(S._imported&&HJ.loginSshDeviceId))&&(S.pass||S.key),xOk=S.xHost.trim()&&S.xSecret.trim();if(!sshOk&&!xOk)e.push('Add an SSH server or a V2Ray / Shadowsocks server');return e}if(S.tunnel==='hy'){e.push('Hysteria needs a QUIC engine that is not bundled in this build');return e}
+function validate(){const e=[];if(S.tunnel==='smart'){const sshOk=S.sshHost.trim()&&(S.user.trim()||(S._imported&&HJ.loginSshDeviceId))&&(S.pass||S.key),xOk=S.xHost.trim()&&S.xSecret.trim();const hyOk=S.hyHost.trim()&&S.hyAuth;if(!sshOk&&!xOk&&!hyOk)e.push('Add an SSH, V2Ray / Shadowsocks or Hysteria server');return e}
+if(S.tunnel==='hy'){if(!S.hyHost.trim())e.push('Hysteria server address is required');if(!S.hyAuth)e.push('Hysteria password is required');return e}
+if(S.tunnel==='dnstt'||S.tunnel==='dnsv2'){if(!S.dnsDomain.trim())e.push('Name server domain is required');if(!/^[0-9a-fA-F]{64}$/.test(S.dnsKey.trim()))e.push('The DNSTT public key must be 64 hex characters');if(S.tunnel==='dnstt'){if(!(S.user.trim()||(S._imported&&HJ.loginSshDeviceId)))e.push('SSH username is required');if(!S.pass&&!S.key)e.push('Enter an SSH password or private key')}else if(!S.xSecret.trim())e.push('V2Ray UUID / password is required');return e}if(S.tunnel==='hy'){e.push('Hysteria needs a QUIC engine that is not bundled in this build');return e}
 if(S.tunnel!=='ssh'){if(!S.xHost.trim())e.push('Server address is required');const p=+S.xPort;if(!(p>0&&p<65536))e.push('Server port must be 1–65535');if(!S.xSecret.trim())e.push(S.tunnel==='ss'||S.xProto==='trojan'?'Password is required':'UUID is required');if(S.tunnel==='v2'&&S.xProto==='trojan'&&!S.xTls)e.push('Trojan requires TLS');return e}
 if(!S.sshHost.trim())e.push('SSH host is required');const p=+S.sshPort;if(!(p>0&&p<65536))e.push('SSH port must be 1–65535');if(!S.user.trim()&&!(S._imported&&HJ.loginSshDeviceId))e.push('SSH username is required');if(!S.pass&&!S.key)e.push('Enter an SSH password or private key');if(['http','socks5','socks4','tls','ws'].includes(S.from)&&!S.pHost.trim())e.push('Proxy host is required');if(S.from==='dpay'&&!S.payload.trim())e.push('Payload is required for Direct + Payload');if((S.from==='tls'||S.from==='sni')&&!S.sni.trim())e.push('SNI is required for TLS');return e}
 const TPL={ws:'GET wss://[host] HTTP/1.1[crlf]Host: [host][crlf]Connection: upgrade[crlf]Upgrade: websocket[crlf][crlf]',connect:'CONNECT [host]:443 HTTP/1.1[crlf]Host: [host][crlf][crlf]',get:'GET / HTTP/1.1[crlf]Host: [host][crlf][crlf]'};
@@ -377,7 +397,7 @@ const reqs={};let pendingKind='saveHJ';
 const cloudServer=()=>'https://juanvpn.juanvpn.workers.dev';
 const yn=v=>v?'✔':'✖';
 function exportSummary(){
-let tt;if(S.tunnel==='smart')tt='Smart (SSH + '+(S.xProto==='ss'?'Shadowsocks':S.xProto.toUpperCase())+')';else if(S.tunnel==='ssh')tt=`${FROM[S.from]||S.from} → SSH${payOn()?' (Custom Payload)':''}`;else tt=`${XN[S.tunnel]} (${S.tunnel==='ss'?'Shadowsocks':S.xProto.toUpperCase()}${S.xNet==='ws'?' + WebSocket':''}${S.xTls?' + TLS':''})`;
+let tt;if(S.tunnel==='hy')tt='Hysteria';else if(S.tunnel==='dnstt')tt='SlowDNS (DNSTT)';else if(S.tunnel==='dnsv2')tt='DNSTT + V2Ray';else if(S.tunnel==='smart')tt='Smart (SSH + '+(S.xProto==='ss'?'Shadowsocks':S.xProto.toUpperCase())+')';else if(S.tunnel==='ssh')tt=`${FROM[S.from]||S.from} → SSH${payOn()?' (Custom Payload)':''}`;else tt=`${XN[S.tunnel]} (${S.tunnel==='ss'?'Shadowsocks':S.xProto.toUpperCase()}${S.xNet==='ws'?' + WebSocket':''}${S.xTls?' + TLS':''})`;
 const dns=S.dnsMode==='auto'?'Automatic':({'1.1.1.1':'Cloudflare DNS','1.0.0.1':'Cloudflare DNS','8.8.8.8':'Google DNS','8.8.4.4':'Google DNS','9.9.9.9':'Quad9 DNS'}[String(S.dns1).trim()]||(S.dns1||'Custom DNS'));
 const routes=!S.defRoute||(S.appMode&&S.appMode!=='off'&&(S.apps||[]).length>0);
 const rows=[['Tunnel Type',tt]];
@@ -413,7 +433,7 @@ confirmReset(){try{if(B()&&B().disconnect)B().disconnect();S={...D};S._hjLocked=
 openExporter(){unmodal();nav('exporter')},
 saveQuick(){unmodal();ACT.saveP()},
 openServers(){unmodal();nav('servers')},
-impLink(){try{const r=parseLink(S.link),was=S.tunnel;Object.assign(S,r.o);if(was==='smart'){S.xProto=r.o.tunnel==='ss'?'ss':(r.o.xProto||S.xProto);S.tunnel='smart'}if(r.name)S.name=r.name;S.link='';save();if(B()&&B().saveSecrets)B().saveSecrets(JSON.stringify(Object.fromEntries(SECRET.map(k=>[k,S[k]||'']))));log('Link imported: '+S.tunnel+' '+S.xHost+':'+S.xPort);toast('Link imported');render()}catch(x){toast(x.message);log('Import failed: '+x.message)}},
+impLink(){try{const r=parseLink(S.link),was=S.tunnel;Object.assign(S,r.o);if(was==='smart'||was==='dnsv2'){S.xProto=r.o.tunnel==='ss'?'ss':(r.o.xProto||S.xProto);S.tunnel=was}if(r.name)S.name=r.name;S.link='';save();if(B()&&B().saveSecrets)B().saveSecrets(JSON.stringify(Object.fromEntries(SECRET.map(k=>[k,S[k]||'']))));log('Link imported: '+S.tunnel+' '+S.xHost+':'+S.xPort);toast('Link imported');render()}catch(x){toast(x.message);log('Import failed: '+x.message)}},
 forget(){S.known='';save();B()&&B().forgetHostKey&&B().forgetHostKey(S.sshHost,String(S.sshPort));toast('Trusted key cleared');render()},
 mdclose(){unmodal();render()},hkyes(){B()&&B().hostKeyAnswer&&B().hostKeyAnswer(true);unmodal()},hkno(){B()&&B().hostKeyAnswer&&B().hostKeyAnswer(false);unmodal()},
 start(){const e=validate();if(e.length){ST.error=e[0];log('Validation failed: '+e[0]);render();return}

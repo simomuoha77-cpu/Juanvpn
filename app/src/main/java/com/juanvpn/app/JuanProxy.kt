@@ -448,7 +448,8 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, priva
      */
     private fun verifyBanner(i: PushbackInputStream, s: Socket) {
         val old = s.soTimeout
-        s.soTimeout = if (old > 0) minOf(old, 4_000) else 4_000
+        val bannerWait = if (c.sshHost == "127.0.0.1") 20_000 else 4_000   // a DNS tunnel answers slowly
+        s.soTimeout = if (old > 0) minOf(old, bannerWait) else bannerWait
         val buf = ByteArray(255)
         var n = 0
         try {
