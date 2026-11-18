@@ -62,7 +62,17 @@ private val IPV4 = Regex("(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})")
 object JuanPayload {
     const val UA = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
     private val rnd = java.util.Random()
-    private val tag = Regex("\\[([A-Za-z_]+)(?:=([^\\]]*))?\\]")
+    private val RANDOM_UA = listOf(
+        UA,
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Linux; Android 12; SM-A525F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36"
+    )
+    private val KNOWN_TAGS = setOf("crlf", "cr", "lf", "lfcr", "tab", "space", "host", "ssh_host", "host_ip", "ip", "port", "ssh_port",
+        "host_port", "ssh", "protocol", "method", "netdata", "raw", "realdata", "real_raw", "rawdata", "ua", "user_agent", "random_ua",
+        "ua_random", "sni", "proxy", "proxy_host", "proxy_port", "sni_rotate", "path", "ws_path", "wspath", "auth", "rotate", "random",
+        "split", "instant_split", "split_instant", "delay_split", "split_delay", "delay")
+    private val tag = Regex("\\[([A-Za-z_][A-Za-z0-9_-]*)(?:=([^\\]]*))?\\]")
     private val marker = Regex("\u0001([SID]|T\\d+)\\u0001")
     private val reqLine = Regex("(?:^|\\n)[A-Za-z]+ \\S+ HTTP/\\d(?:\\.\\d)?\\r?\\n")
 
@@ -110,28 +120,29 @@ object JuanPayload {
         t = if (hasTags) t.replace("\n", "") else t.replace("\n", "\r\n")   // typed line breaks become CRLF when no tags are used
         val hp = "$host:$port"
         t = tag.replace(t) { m ->
-            val name = m.groupValues[1].lowercase()
+            val name = m.groupValues[1].lowercase().replace('-', '_')
             val arg = m.groupValues[2]
             when (name) {
                 "crlf" -> "\r\n"; "cr" -> "\r"; "lf" -> "\n"; "lfcr" -> "\n\r"; "tab" -> "\t"; "space" -> " "
-                "host", "ssh_host" -> host
+                "host", "ssh_host", "host_ip", "ip" -> host
                 "port", "ssh_port" -> port.toString()
                 "host_port", "ssh" -> hp
                 "protocol" -> "HTTP/1.1"
                 "method" -> "CONNECT"
                 "netdata", "raw", "realdata", "real_raw", "rawdata" -> "CONNECT $hp HTTP/1.1"
                 "ua", "user_agent" -> UA
+                "random_ua", "ua_random" -> RANDOM_UA[rnd.nextInt(RANDOM_UA.size)]
                 "sni" -> sni.ifBlank { host }
                 "proxy", "proxy_host" -> c.pHost
                 "proxy_port" -> c.pPort.toString()
                 "sni_rotate" -> sni.ifBlank { host }
-                "path" -> c.wsPath.ifBlank { "/" }
+                "path", "ws_path", "wspath" -> c.wsPath.ifBlank { "/" }
                 "auth" -> if (c.pUser.isNotEmpty()) "Proxy-Authorization: Basic " +
                     Base64.encodeToString("${c.pUser}:${c.pPass}".toByteArray(), Base64.NO_WRAP) else ""
                 "rotate" -> arg.split(';').filter { it.isNotEmpty() }.let { if (it.isEmpty()) "" else it[Math.floorMod(rot, it.size)] }
                 "random" -> arg.split(';').filter { it.isNotEmpty() }.let { if (it.isEmpty()) "" else it[rnd.nextInt(it.size)] }
                 "split" -> "\u0001S\u0001"
-                "instant_split" -> "\u0001I\u0001"
+                "instant_split", "split_instant" -> "\u0001I\u0001"
                 "delay_split", "split_delay" -> "\u0001D\u0001"
                 "delay" -> "\u0001T" + (arg.toLongOrNull() ?: 1000L).coerceIn(0L, 10_000L) + "\u0001"
                 else -> m.value
@@ -157,23 +168,41 @@ object JuanPayload {
         return parts
     }
 
+    // "Soft" sizes only produce a note in the log. Only the HARD limits stop a payload (they protect the phone, and
+    // no real payload comes anywhere near them).
     const val MAX_BYTES = 16 * 1024
     const val MAX_PARTS = 32
     const val MAX_PAUSE_MS = 20_000L
+    const val HARD_BYTES = 256 * 1024
+    const val HARD_PARTS = 1000
     private val requestLine = Regex("^[A-Za-z]+ \\S+ HTTP/\\d(?:\\.\\d)?$")
     private val headerLine = Regex("^([^:\\s]+)[ \\t]*:(.*)$")
 
     /**
-     * Returns why a built payload must not be sent, or null when it is fine. It only ever rejects: the payload the
-     * user wrote is never edited. Bare LF/CR, [split], [delay], a huge declared Content-Length and other injector
-     * tricks stay allowed; what is refused is oversize, NUL bytes, malformed request lines and contradictory framing.
+     * Returns why a built payload must not be sent, or null. Every payload a user writes is accepted and sent exactly
+     * as written: only an empty payload or an absurd size (far beyond any real payload) is refused.
      */
     fun validate(parts: List<Part>): String? {
         if (parts.isEmpty()) return "the payload is empty"
-        if (parts.size > MAX_PARTS) return "too many split parts (${parts.size}, maximum $MAX_PARTS)"
+        if (parts.size > HARD_PARTS) return "too many split parts (${parts.size})"
+        if (parts.sumOf { it.data.size } > HARD_BYTES) return "payload is larger than ${HARD_BYTES / 1024} KB"
+        return null
+    }
+
+    /** Unusual things in a payload. These are only reported in the log, the payload is still sent as typed. */
+    fun warnings(parts: List<Part>): List<String> = listOfNotNull(softIssue(parts))
+
+    /** Tags in the payload this app does not know. They are sent as typed. */
+    fun unknownTags(payload: String, rot: Int): List<String> =
+        tag.findAll(expandChoices(payload, rot)).map { it.groupValues[1] }
+            .filter { it.lowercase().replace('-', '_') !in KNOWN_TAGS }.distinct().toList()
+
+    private fun softIssue(parts: List<Part>): String? {
+        if (parts.isEmpty()) return "the payload is empty"
+        if (parts.size > MAX_PARTS) return "many split parts (${parts.size})"
         val size = parts.sumOf { it.data.size }
-        if (size > MAX_BYTES) return "payload is $size bytes (maximum $MAX_BYTES)"
-        if (parts.sumOf { it.pauseMs } > MAX_PAUSE_MS) return "total delay is too long (maximum ${MAX_PAUSE_MS / 1000}s)"
+        if (size > MAX_BYTES) return "payload is $size bytes, larger than usual"
+        if (parts.sumOf { it.pauseMs } > MAX_PAUSE_MS) return "total delay is long (${parts.sumOf { it.pauseMs } / 1000}s)"
         if (parts.any { p -> p.data.any { it == 0.toByte() } }) return "it contains a NUL byte"
         val text = parts.joinToString("") { String(it.data, Charsets.ISO_8859_1) }
         var atStart = true
@@ -411,6 +440,8 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, priva
             log("Payload: REJECTED - $it")
             throw JuanConnException(JuanFail.BAD_PAYLOAD, "Payload rejected: $it")
         }
+        JuanPayload.warnings(parts).forEach { log("Payload: note - $it (sent as typed)") }
+        JuanPayload.unknownTags(payload, rot).forEach { log("Payload: tag [$it] is not known here and is sent as typed") }
         for ((n, p) in parts.withIndex()) {
             checkCancelled()
             o.write(p.data); o.flush()
