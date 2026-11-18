@@ -95,7 +95,7 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
     /** Opens and closes a real channel through the SSH server. */
     override fun probe(): Boolean = try {
         val ch = session!!.openChannel("direct-tcpip") as ChannelDirectTCPIP
-        ch.setHost("1.1.1.1"); ch.setPort(443); ch.connect(8000)
+        ch.setHost("1.1.1.1"); ch.setPort(443); ch.connect(if (c.sshHost == "127.0.0.1") 25_000 else 8000)  // a DNS tunnel needs several slow round trips
         val ok = ch.isConnected; ch.disconnect(); ok
     } catch (e: Exception) {
         log("Probe failed: ${e.message}")

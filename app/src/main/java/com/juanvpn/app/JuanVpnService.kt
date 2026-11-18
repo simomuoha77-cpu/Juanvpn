@@ -439,6 +439,29 @@ class JuanVpnService : VpnService() {
     }
 
     /**
+     * DNS tunnel only. When a whole cycle failed, the DNSTT client may be stuck on a bad resolver path or a dead
+     * session (a mobile network can throttle or stall it until the radio is reset). Before the next cycle the client
+     * is restarted with a fresh socket and the resolver is rotated: your configured one, then DoH, DoT, UDP 1.1.1.1.
+     * The local port is stable per domain, so the SSH settings of the next cycle stay valid.
+     */
+    private fun refreshDnsTunnel(c: JuanCfg, cycle: Int) {
+        if (aux !is JuanDnsttRunner || c.sshHost != "127.0.0.1") return
+        val options = listOf(c.dnsMode to c.dnsResolver, "doh" to "", "dot" to "", "udp" to "1.1.1.1:53")
+        val (mode, resolver) = options[(cycle - 1) % options.size]
+        JuanBus.log("DNS tunnel: restarting (${mode.uppercase()}${if (resolver.isBlank()) "" else " $resolver"})")
+        try { aux?.close() } catch (_: Exception) {}
+        aux = null
+        try { Thread.sleep(400) } catch (_: InterruptedException) { return }
+        try {
+            val r = JuanDnsttRunner(this, c.copy(dnsMode = mode, dnsResolver = resolver), JuanBus::log)
+            aux = r
+            r.start()
+        } catch (e: JuanConnException) {
+            JuanBus.log("DNS tunnel: restart failed, trying the next cycle anyway")
+        }
+    }
+
+    /**
      * SSH profiles. Every proxy x SNI x payload combination is one candidate. The last successful one goes first;
      * each candidate is tried once per cycle, a whole cycle that fails is followed by a pause and a new cycle.
      * A combination only counts as working after TCP, WebSocket/HTTP, SSH banner, SSH login, TUN and the traffic check.
@@ -484,6 +507,7 @@ class JuanVpnService : VpnService() {
                 JuanBus.log("Could not connect. Retrying in ${"%.0f".format(wait / 1000.0)}s...")
                 post("CONNECTING", "Retrying ($cycle/${cycles - 1})", "")
                 Thread.sleep(wait)
+                if (live()) refreshDnsTunnel(c, cycle)
             }
         }
         throw JuanFatalException("Could not connect. Last error: $last")
