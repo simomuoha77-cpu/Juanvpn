@@ -52,7 +52,9 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
         if (c.pass.isNotEmpty()) s.setPassword(c.pass)
         // Host keys are always accepted: no confirmation prompt and nothing to manage.
         s.setConfig("StrictHostKeyChecking", "no")
-        s.setServerAliveInterval(c.keepalive * 1000)
+        // Keep the user's shorter interval, but cap very long values: after a network
+        // handover a dead TCP path must be detected promptly so auto-reconnect can run.
+        s.setServerAliveInterval(c.keepalive.coerceIn(10, 30) * 1000)
         s.setServerAliveCountMax(3)
         val px = JuanProxy(c, log, protect)
         proxy = px

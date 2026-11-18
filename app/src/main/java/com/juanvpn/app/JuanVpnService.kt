@@ -93,8 +93,13 @@ object TunEngine {
             "misc:\n  task-stack-size: 20480\n  connect-timeout: 5000\n  read-write-timeout: 60000\n  log-level: info\n"
         )
         JuanBus.log("TUN: loading native library")
-        val k = try { Class.forName(CLS) } catch (_: ClassNotFoundException) {
-            throw IllegalStateException("TUN engine not bundled: add hev-socks5-tunnel (hev.htproxy.TProxyService + libhev-socks5-tunnel.so)")
+        val k = try {
+            Class.forName(CLS)
+        } catch (e: Throwable) {
+            throw IllegalStateException(
+                "TUN engine unavailable: hev-socks5-tunnel native library is missing or could not load for this device ABI. Rebuild the APK with the native engine included.",
+                e
+            )
         }
         try {
             val r = k.getMethod("TProxyStartService", String::class.java, Int::class.javaPrimitiveType).invoke(null, cfg.absolutePath, fd)
@@ -137,6 +142,7 @@ class JuanVpnService : VpnService() {
     @Volatile private var autoReconnect = true
     private var netCb: ConnectivityManager.NetworkCallback? = null
     private var airRx: BroadcastReceiver? = null
+    @Volatile private var defaultNetwork: Network? = null
     private val nets: MutableSet<Network> = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<Network, Boolean>())
 
     override fun onStartCommand(i: Intent?, f: Int, id: Int): Int {
@@ -238,34 +244,60 @@ class JuanVpnService : VpnService() {
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build()
             nets.clear()
+            defaultNetwork = null
             val cb = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
-                    val wasEmpty = nets.isEmpty()
+                    val previous = defaultNetwork
                     nets.add(network)
-                    if (wasEmpty && JuanBus.state != "DISCONNECTED") JuanBus.log("Network: back online")
+
+                    // Android 7+ calls this callback for the active default network.
+                    // A Wi-Fi <-> mobile handover must replace existing TCP/SSH sockets:
+                    // they remain bound to the old network even if that network is still up.
+                    val isDefault = Build.VERSION.SDK_INT >= 24 || cm.activeNetwork == network
+                    if (isDefault) {
+                        defaultNetwork = network
+                        if (previous != null && previous != network &&
+                            JuanBus.state == "CONNECTED" && !stopping) {
+                            JuanBus.log("Network: default route changed")
+                            beginReconnect("network changed")
+                        } else if (previous == null && JuanBus.state != "DISCONNECTED") {
+                            JuanBus.log("Network: back online")
+                        }
+                    }
                 }
+
                 override fun onLost(network: Network) {
                     nets.remove(network)
+                    if (defaultNetwork == network) defaultNetwork = null
                     if (nets.isEmpty() && !stopping) {
                         JuanBus.log("Network: lost (airplane mode or no signal)")
                         if (JuanBus.state == "CONNECTED") beginReconnect("network lost")
                     }
                 }
             }
-            cm.registerNetworkCallback(req, cb)
+            if (Build.VERSION.SDK_INT >= 24) {
+                cm.registerDefaultNetworkCallback(cb)
+            } else {
+                cm.registerNetworkCallback(req, cb)
+            }
             netCb = cb
             val rx = object : BroadcastReceiver() {
-                override fun onReceive(c: Context, i: Intent) { JuanBus.log("Airplane mode: " + if (i.getBooleanExtra("state", false)) "ON" else "OFF") }
+                override fun onReceive(c: Context, i: Intent) {
+                    JuanBus.log("Airplane mode: " + if (i.getBooleanExtra("state", false)) "ON" else "OFF")
+                }
             }
             val f = IntentFilter(Intent.ACTION_AIRPLANE_MODE_CHANGED)
             if (Build.VERSION.SDK_INT >= 33) registerReceiver(rx, f, Context.RECEIVER_NOT_EXPORTED) else registerReceiver(rx, f)
             airRx = rx
-        } catch (e: Throwable) { JuanBus.log("Network monitor unavailable: ${e.message}") }
+        } catch (e: Throwable) {
+            JuanBus.log("Network monitor unavailable: ${e.message}")
+        }
     }
 
     private fun unregisterMonitor() {
         try { netCb?.let { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) } } catch (_: Throwable) {}
         netCb = null
+        defaultNetwork = null
         try { airRx?.let { unregisterReceiver(it) } } catch (_: Throwable) {}
         airRx = null
         nets.clear()
