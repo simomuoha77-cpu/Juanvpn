@@ -139,9 +139,15 @@ pre{background:#111416;color:#d1d8d8;border:1px solid #2c3134;border-radius:7px;
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
 
 
-/* Explicit heavy log typography: applied to the log container and each rendered line */
-pre.logpre { font-family: "Roboto Mono", "DejaVu Sans Mono", monospace !important; font-size: 13px !important; font-weight: 700 !important; letter-spacing: 0.12px !important; }
-pre.logpre .ll { font-weight: 700 !important; text-shadow: 0.45px 0 currentColor !important; }
+/* Global stronger typography — preserve connection-log rendering */
+body{font-weight:600}
+body :not(pre):not(code):not(svg):not(path){font-weight:600}
+body strong,body b{font-weight:800}
+body h1,body h2,body h3,body h4,body .bar h1,body .card>h3,body .sheet h2{font-weight:800}
+body button,body .tabs button,body label,body summary,body input,body textarea,body select,body .btn,body .row .t b{font-weight:700}
+body small,body .row .t small,body .stats small,body .note,body .fld .h{font-weight:600}
+/* Keep log/code text at its existing weight */
+pre,code,.pv,.pg,.cf input{font-weight:400}
 </style></head>
 <body>
 <div id="dim"></div><aside id="dr"></aside>
@@ -564,3 +570,8 @@ setTimeout(pushPing,600);
 document.addEventListener('click',e=>{const b=e.target.closest('[data-method]');if(!b)return;const m=METHODS.find(x=>x[0]===b.dataset.method);if(!m||!m[3])return;Object.assign(S,m[3]);if(m[0]==='v2'&&S.xProto==='ss')S.xProto='vless';save();render()});
 </script></body></html>
 
+/* Stronger connection log text for small-screen readability */
+pre.logpre, pre.logpre .ll, .logpre, .logpre .ll {
+  font-weight: 700 !important;
+  text-shadow: 0 0 0.35px currentColor;
+}
