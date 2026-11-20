@@ -182,9 +182,9 @@ const LC=l=>{const t=String(l).replace(/^\[?\d{2}:\d{2}:\d{2}\]?\s+/,'');if(/^Na
 const pm=t.match(/^Ping: (\d+) \((\d+)ms\)/);if(pm)return pingCls(+pm[2]);
 if(/^State: ERROR|^Error:|\bfail(ed|ure)?\b|refused|rejected|denied|dropped|\blost\b|unreachable|timed out|timeout|cannot|could not|unable|invalid|bad data|closed by foreign|stopped right|revoked|HOST KEY CHANGED|not bundled|Unsupported|not supported/i.test(t))return'bad';
 if(/warning/i.test(t))return'warn';
-if(/^State: CONNECTED|authenticated as|handshake OK|certificate verified|packet engine started|transport OK|forwarder on|SOCKS5 CONNECT OK|Network: back online|Network: ready|^Public IP: \d|Reconnect: connected again|Combination successful|Traffic: CHECK PASSED|TUN: STARTED/i.test(t))return'ok';return''};
+if(/authenticated as|handshake OK|certificate verified|packet engine started|transport OK|forwarder on|SOCKS5 CONNECT OK|Network: back online|Network: ready|^Public IP: \d|Reconnect: connected again|Combination successful|Traffic: CHECK PASSED|TUN: STARTED/i.test(t))return'ok';return''};
 const ipHi=h=>h.replace(/(Local IP |Public IP: )(\d{1,3}(?:\.\d{1,3}){3})/g,'$1<span class="ipg">$2</span>');
-const logHtml=()=>LOG.length?LOG.map(l=>`<span class="ll ${LC(l)}">${ipHi(esc(redactLockedLog(l)))}</span>`).join(''):'No events yet.';
+const logHtml=()=>LOG.length?LOG.map(l=>{let html=ipHi(esc(redactLockedLog(l)));html=html.replace(/(State:\s*)CONNECTED(\b)/g,'$1<span style=\"color:#FFD54F\">CONNECTED</span>$2');return `<span class=\"ll ${LC(l)}\">${html}</span>`}).join(''):'No events yet.';
 
 /* share links: vless:// trojan:// ss:// */
 const b64=x=>{x=decodeURIComponent(x).replace(/-/g,'+').replace(/_/g,'/');while(x.length%4)x+='=';return atob(x)};
