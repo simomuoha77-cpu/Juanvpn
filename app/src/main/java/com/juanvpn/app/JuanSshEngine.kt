@@ -36,6 +36,15 @@ interface HostTrust {
 
 class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, private val trust: HostTrust, private val protect: (Socket) -> Unit = {}) : TunnelEngine {
     @Volatile override var probeError = ""
+    private companion object {
+        const val WINDOW = 4 * 1024 * 1024
+        /** Servers that dropped the main link right after an extra login: no parallel links for them until restart. */
+        val boostOff: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+        /** Channel window setters, looked up once (they are package-private in some JSch versions). */
+        val windowSetters: List<java.lang.reflect.Method> = listOf("setLocalWindowSizeMax", "setLocalWindowSize").mapNotNull { n ->
+            try { com.jcraft.jsch.Channel::class.java.getDeclaredMethod(n, Int::class.javaPrimitiveType).also { it.isAccessible = true } } catch (_: Throwable) { null }
+        }
+    }
     override val up = AtomicLong(); override val down = AtomicLong()
     @Volatile private var port = 0
     override val socksPort: Int get() = port
@@ -45,7 +54,17 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
     private val running = AtomicBoolean(false)
     private val pool = Executors.newCachedThreadPool()
 
-    override fun start() {
+    // ---------- speed: bigger channel window + parallel links ----------
+    private val sessions = java.util.concurrent.CopyOnWriteArrayList<Session>()
+    private val extraProxies = java.util.concurrent.CopyOnWriteArrayList<JuanProxy>()
+    private val rr = java.util.concurrent.atomic.AtomicInteger()
+    @Volatile private var boostAt = 0L
+    @Volatile private var stopped = false
+    private val quiet: (String) -> Unit = { }
+    private val boostKey get() = "${c.sshHost}:${c.sshPort}:${c.user}"
+
+    /** Opens and authenticates one SSH session over the configured transport. The first one is the main link. */
+    private fun openSession(primary: Boolean): Session {
         val jsch = JSch()
         if (c.key.isNotBlank()) jsch.addIdentity("juan-key", c.key.toByteArray(), null, c.keyPass.takeIf { it.isNotEmpty() }?.toByteArray())
         val s = jsch.getSession(c.user, c.sshHost, c.sshPort)
@@ -56,21 +75,78 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
         // handover a dead TCP path must be detected promptly so auto-reconnect can run.
         s.setServerAliveInterval(c.keepalive.coerceIn(10, 30) * 1000)
         s.setServerAliveCountMax(3)
-        val px = JuanProxy(c, log, protect)
-        proxy = px
+        val px = JuanProxy(c, if (primary) log else quiet, protect)
+        if (primary) proxy = px else extraProxies.add(px)
         s.setProxy(px)
-        log("SSH: connecting ${c.sshHost}:${c.sshPort}")
+        if (primary) log("SSH: connecting ${c.sshHost}:${c.sshPort}")
         s.connect(15_000)
-        s.hostKey?.let { log("SSH: server key ${it.type} ${it.getFingerPrint(jsch)}") }
-        log("SSH: AUTHENTICATED")
-        session = s
-        val ss = ServerSocket(0, 128, InetAddress.getByName("127.0.0.1"))
-        server = ss; port = ss.localPort; running.set(true)
-        pool.execute { while (running.get()) try { val cl = ss.accept(); pool.execute { handle(cl, s) } } catch (_: Exception) { if (running.get()) running.set(false) } }
-        log("Tunnel: local forwarder on 127.0.0.1:$port")
+        if (primary) {
+            s.hostKey?.let { log("SSH: server key ${it.type} ${it.getFingerPrint(jsch)}") }
+            log("SSH: AUTHENTICATED")
+        }
+        return s
     }
 
-    override fun alive() = running.get() && session?.isConnected == true
+    override fun start() {
+        val s = openSession(true)
+        session = s
+        sessions.add(s)
+        val ss = ServerSocket(0, 128, InetAddress.getByName("127.0.0.1"))
+        server = ss; port = ss.localPort; running.set(true)
+        pool.execute { while (running.get()) try { val cl = ss.accept(); cl.tcpNoDelay = true; pool.execute { handle(cl, pick()) } } catch (_: Exception) { if (running.get()) running.set(false) } }
+        log("Tunnel: local forwarder on 127.0.0.1:$port")
+        openExtraLinks()
+    }
+
+    /**
+     * Speed boost. A speed test (and a browser) opens many connections; on one SSH link they all share a single TCP
+     * connection and its one congestion window. Extra links give them separate TCP connections. They are best effort:
+     * the first one that fails to log in ends the attempt, and a server that drops the main link right after an
+     * extra login (a one-login-per-account rule) gets the boost switched off until the app restarts.
+     */
+    private fun openExtraLinks() {
+        val want = c.links.coerceIn(1, 4)
+        if (want <= 1 || c.sshHost == "127.0.0.1") return          // 127.0.0.1 = DNS tunnel: no bandwidth to share
+        if (boostOff.contains(boostKey)) { log("Boost: off for this server (it allows one login at a time)"); return }
+        pool.execute {
+            var n = 1
+            while (n < want && running.get()) {
+                try {
+                    Thread.sleep(700)
+                    val s2 = openSession(false)
+                    if (!running.get()) { try { s2.disconnect() } catch (_: Exception) {}; break }
+                    sessions.add(s2); n++
+                    boostAt = System.currentTimeMillis()
+                    log("Boost: link $n of $want ready")
+                } catch (_: InterruptedException) { break
+                } catch (e: Exception) {
+                    log("Boost: extra link not available (${(e.message ?: "failed").take(70)}), continuing with $n")
+                    break
+                }
+            }
+        }
+    }
+
+    /** The live session that should carry the next connection (round robin). */
+    private fun pick(): Session {
+        val live = sessions.filter { it.isConnected }
+        return if (live.isEmpty()) session!! else live[Math.floorMod(rr.getAndIncrement(), live.size)]
+    }
+
+    /** A bigger flow-control window per channel, so a fast download is not held back waiting for window updates. */
+    private fun tune(ch: com.jcraft.jsch.Channel) {
+        for (m in windowSetters) try { m.invoke(ch, WINDOW) } catch (_: Throwable) {}
+    }
+
+
+    override fun alive(): Boolean {
+        val ok = running.get() && session?.isConnected == true
+        if (!ok && !stopped && boostAt > 0 && System.currentTimeMillis() - boostAt < 30_000) {
+            boostOff.add(boostKey)                                  // the extra login cost us the main link
+            log("Boost: turned off for this server (it allows one login at a time)")
+        }
+        return ok
+    }
 
     private val extra = java.util.concurrent.CopyOnWriteArrayList<ServerSocket>()
 
@@ -79,13 +155,14 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
         val s = session ?: throw IllegalStateException("SSH is not connected")
         val ss = ServerSocket(0, 64, InetAddress.getByName("127.0.0.1"))
         extra.add(ss)
-        pool.execute { while (running.get()) try { val cl = ss.accept(); pool.execute { pipeTo(cl, s, host, rport) } } catch (_: Exception) { break } }
+        pool.execute { while (running.get()) try { val cl = ss.accept(); cl.tcpNoDelay = true; pool.execute { pipeTo(cl, pick(), host, rport) } } catch (_: Exception) { break } }
         return ss.localPort
     }
 
     private fun pipeTo(cl: Socket, ssh: Session, host: String, rport: Int) = cl.use { c0 ->
         try {
             val ch = ssh.openChannel("direct-tcpip") as ChannelDirectTCPIP
+            tune(ch)
             ch.setHost(host); ch.setPort(rport)
             ch.setInputStream(CIn(c0.getInputStream(), up)); ch.setOutputStream(COut(c0.getOutputStream(), down))
             ch.connect(10_000)
@@ -124,11 +201,12 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
             val port = (inp.read() shl 8) or inp.read()
             if (cmd == 3) {                                   // UDP ASSOCIATE
                 if (!c.udpgw) { out.write(byteArrayOf(5, 7, 0, 1, 0, 0, 0, 0, 0, 0)); return@use }
-                udpAssociate(c0, out, ssh)
+                udpAssociate(c0, out, session ?: ssh)   // UDP always rides the main link
                 return@use
             }
             if (JuanPolicy.blocked(host, port)) { out.write(byteArrayOf(5, 2, 0, 1, 0, 0, 0, 0, 0, 0)); return@use }
             val ch = ssh.openChannel("direct-tcpip") as ChannelDirectTCPIP
+            tune(ch)
             ch.setHost(host); ch.setPort(port)
             ch.setInputStream(CIn(inp, up)); ch.setOutputStream(COut(out, down))
             ch.connect(10_000)
@@ -280,9 +358,12 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
     override fun stop() {
         try { udpgw?.close() } catch (_: Exception) {}
         running.set(false)
+        stopped = true
         try { proxy?.cancel() } catch (_: Exception) {}      // aborts a handshake that is still in progress
+        extraProxies.forEach { try { it.cancel() } catch (_: Exception) {} }
         try { server?.close() } catch (_: Exception) {}
         extra.forEach { try { it.close() } catch (_: Exception) {} }
+        sessions.forEach { try { it.disconnect() } catch (_: Exception) {} }
         try { session?.disconnect() } catch (_: Exception) {}
         pool.shutdownNow()
     }

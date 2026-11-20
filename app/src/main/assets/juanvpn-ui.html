@@ -96,7 +96,7 @@ let pendingHJText='';
 const D={name:'My server',tunnel:'ssh',from:'direct',custom:true,sshHost:'',sshPort:'22',user:'',pass:'',key:'',keyPass:'',known:'',keepalive:'30',
 pHost:'',pPort:'443',pUser:'',pPass:'',sni:'',verify:true,ws:false,wsPath:'/',payload:'GET wss://[host] HTTP/1.1[crlf]Host: [host][crlf]Connection: upgrade[crlf]Upgrade: websocket[crlf][crlf]',
 dnsMode:'custom',dns1:'1.1.1.1',dns2:'1.0.0.1',dnsFwd:true,defRoute:true,ipv6:false,kill:false,routes:'',excl:'',appMode:'off',apps:[],
-reconnect:true,delay:'5',retries:'5',wake:false,sshPaste:'',hyHost:'',hyPort:'443',hyAuth:'',hyUser:'',hySni:'',hyInsecure:false,hyObfs:'',hyUp:'',hyDown:'',dnsDomain:'',dnsKey:'',dnsMode:'udp',dnsResolver:'',udpgw:true,udpgwPort:'7300',ping:true,pingUrl:'clients3.google.com/generate_204',
+reconnect:true,delay:'5',retries:'5',wake:false,sshPaste:'',hyHost:'',hyPort:'443',hyAuth:'',hyUser:'',hySni:'',hyInsecure:false,hyObfs:'',hyUp:'',hyDown:'',dnsDomain:'',dnsKey:'',dnsMode:'udp',dnsResolver:'',udpgw:true,udpgwPort:'7300',links:'3',ping:true,pingUrl:'clients3.google.com/generate_204',
 tunnel:'ssh',xProto:'vless',xHost:'',xPort:'443',xSecret:'',xMethod:'aes-256-gcm',xNet:'ws',xTls:true,xSni:'',xWsPath:'/',xWsHost:'',link:''};
 let S={...D},LOG=[],ST={state:'DISCONNECTED',detail:'',error:''},STAT={},DIRECT_IP='',LOCAL_IP='',cur='home',appsList=[],toolOut='';
 try{const r=JSON.parse(localStorage.getItem('juan.p')||'{}');SECRET.forEach(k=>delete r[k]);S={...D,...r}}catch(e){}
@@ -244,7 +244,8 @@ ssh(){return card('Paste account',f('host:port@user:pass','sshPaste',{ph:'23.158
 +card('Server',f('Profile name','name')+`<div class="g2" style="padding:0 16px"><div class="fld" style="padding-left:0;border:0"><label>Host</label><input data-k="sshHost" value="${esc(S.sshHost)}" autocapitalize="off"></div><div class="fld" style="padding-right:0;border:0"><label>Port</label><input data-k="sshPort" value="${esc(S.sshPort)}" inputmode="numeric"></div></div>`)
 +card('Authentication',f('Username','user')+f('Password','pass',{t:'password'})+f('Private key (optional)','key',{area:1,ph:'-----BEGIN OPENSSH PRIVATE KEY-----'})+f('Key passphrase','keyPass',{t:'password'})+'<div class="fld"><div class="h" style="margin:0">Credentials are handed to Android Keystore storage and are not kept in the page.</div></div>')
 
-+card('Keep-alive',f('Heartbeat (seconds)','keepalive',{m:'numeric'}))},
++card('Keep-alive',f('Heartbeat (seconds)','keepalive',{m:'numeric'}))
++card('Speed boost',f('Parallel links (1 = off, up to 4)','links',{m:'numeric'})+'<div class="hint" style="padding:0 16px 12px">Extra SSH connections to the same server share the load, which helps speed tests and busy pages. If the server allows only one login, it is switched off automatically.</div>')},
 
 tls(){return card('Upstream proxy',f('Host / IP','pHost')+f('Port','pPort',{m:'numeric'})+f('Username (optional)','pUser')+f('Password (optional)','pPass',{t:'password'}))
 +card('TLS',f('Server name (SNI)','sni',{h:'Sent during the TLS handshake and checked against the certificate.'})+sw('Verify certificate','verify','On: the certificate is checked first. With a borrowed SNI (a domain that is not your server) it cannot match, so the app checks your SSH server name instead and, if that fails too, continues anyway. The SSH host key then confirms the server.'))},

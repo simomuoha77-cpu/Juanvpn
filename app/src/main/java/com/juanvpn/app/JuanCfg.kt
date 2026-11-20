@@ -26,7 +26,8 @@ data class JuanCfg(
     val hyHost: String = "", val hyPort: String = "443", val hyAuth: String = "", val hyUser: String = "", val hySni: String = "",
     val hyInsecure: Boolean = false, val hyObfs: String = "", val hyUp: Int = 0, val hyDown: Int = 0,
     val dnsDomain: String = "", val dnsKey: String = "", val dnsMode: String = "udp", val dnsResolver: String = "",
-    val udpgw: Boolean = true, val udpgwPort: Int = 7300
+    val udpgw: Boolean = true, val udpgwPort: Int = 7300,
+    val links: Int = 3                              // parallel SSH links for speed (1 = off)
 ) {
     /** Smart profile: the SSH side and the V2Ray / Shadowsocks side, each only when it is filled in correctly. */
     fun sshVariant(): JuanCfg? = copy(tunnel = "ssh").takeIf { it.validateSsh() == null }
@@ -136,7 +137,8 @@ data class JuanCfg(
                 hyInsecure = o.optBoolean("hyInsecure", false), hyObfs = s("hyObfs"), hyUp = i("hyUp", 0).coerceIn(0, 100000), hyDown = i("hyDown", 0).coerceIn(0, 100000),
                 dnsDomain = s("dnsDomain").trim().trimEnd('.'), dnsKey = s("dnsKey").trim(),
                 dnsMode = s("dnsMode").let { if (it == "doh" || it == "dot") it else "udp" }, dnsResolver = s("dnsResolver").trim(),
-                udpgw = o.optBoolean("udpgw", true), udpgwPort = i("udpgwPort", 7300).coerceIn(1, 65535)
+                udpgw = o.optBoolean("udpgw", true), udpgwPort = i("udpgwPort", 7300).coerceIn(1, 65535),
+                links = i("links", 3).coerceIn(1, 4)
             )
         }
     }
