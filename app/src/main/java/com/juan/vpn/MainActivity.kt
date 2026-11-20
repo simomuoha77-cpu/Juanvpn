@@ -84,12 +84,7 @@ class MainActivity : Activity() {
     }
 
     private fun exportConfig() {
-        val intent = android.content.Intent(android.content.Intent.ACTION_CREATE_DOCUMENT).apply {
-            addCategory(android.content.Intent.CATEGORY_OPENABLE)
-            type = "application/json"
-            putExtra(android.content.Intent.EXTRA_TITLE, "juan-vpn-config.json")
-        }
-        startActivityForResult(intent, 41)
+        Toast.makeText(this, "Plaintext export disabled. Use encrypted .HJ export in Juan VPN.", Toast.LENGTH_LONG).show()
     }
 
     private fun importConfig() {

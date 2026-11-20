@@ -226,9 +226,7 @@ class MainActivity : AppCompatActivity() {
             toast("Profile saved on this device")
         }
         actionButton("EXPORT PROFILE") {
-            store.save(profile())
-            startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json")
-                .putExtra(Intent.EXTRA_TITLE, "juan-vpn-profile.json"), pickExport)
+            toast("Plaintext profile export disabled. Use encrypted .HJ export.")
         }
         actionButton("IMPORT PROFILE") {
             startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).setType("application/json")
@@ -381,8 +379,8 @@ class MainActivity : AppCompatActivity() {
         if (resultCode == Activity.RESULT_OK && data?.data != null) try {
             val uri = data.data!!
             if (requestCode == pickExport) {
-                contentResolver.openOutputStream(uri)!!.use { it.write(profile().toJson().toString(2).toByteArray()) }
-                AppLog.write(this, "Profile exported")
+                toast("Plaintext profile export disabled. Use encrypted .HJ export.")
+                return
             }
             if (requestCode == pickImport) {
                 val json = contentResolver.openInputStream(uri)!!.bufferedReader().use { it.readText() }
