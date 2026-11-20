@@ -36,15 +36,6 @@ interface HostTrust {
 
 class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, private val trust: HostTrust, private val protect: (Socket) -> Unit = {}) : TunnelEngine {
     @Volatile override var probeError = ""
-    private companion object {
-        const val WINDOW = 4 * 1024 * 1024
-        /** Servers that dropped the main link right after an extra login: no parallel links for them until restart. */
-        val boostOff: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
-        /** Channel window setters, looked up once (they are package-private in some JSch versions). */
-        val windowSetters: List<java.lang.reflect.Method> = listOf("setLocalWindowSizeMax", "setLocalWindowSize").mapNotNull { n ->
-            try { com.jcraft.jsch.Channel::class.java.getDeclaredMethod(n, Int::class.javaPrimitiveType).also { it.isAccessible = true } } catch (_: Throwable) { null }
-        }
-    }
     override val up = AtomicLong(); override val down = AtomicLong()
     @Volatile private var port = 0
     override val socksPort: Int get() = port
@@ -369,7 +360,14 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
     }
 
     companion object {
-        fun transient(e: Throwable): Boolean {
+        private const val WINDOW = 4 * 1024 * 1024
+        /** Servers that dropped the main link right after an extra login: no parallel links for them until restart. */
+        private val boostOff: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+        /** Channel window setters, looked up once (they are package-private in some JSch versions). */
+        private val windowSetters: List<java.lang.reflect.Method> = listOf("setLocalWindowSizeMax", "setLocalWindowSize").mapNotNull { n ->
+            try { com.jcraft.jsch.Channel::class.java.getDeclaredMethod(n, Int::class.javaPrimitiveType).also { it.isAccessible = true } } catch (_: Throwable) { null }
+        }
+            fun transient(e: Throwable): Boolean {
             val m = ((e.message ?: "") + " " + (e.cause?.message ?: "")).lowercase()
             val hardStop = m.contains("auth fail") || m.contains("auth cancel") || m.contains("userauth") ||
                 m.contains("hostkey") || m.contains("host key") || m.contains("algorithm negotiation") ||
