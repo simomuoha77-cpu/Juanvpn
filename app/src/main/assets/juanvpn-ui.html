@@ -3,7 +3,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="dark"><title>JUAN VPN</title>
 <style>
-:root{--bg:#17191b;--s1:#222426;--s2:#2b2d2f;--ln:#383b3d;--tx:#f1f2f2;--mu:#a1a5a7;--ac:#a5c99a;--ac2:#607b62;--bad:#e57373;--ok:#a5c99a;--warn:#d9b36c;--r:10px;color-scheme:dark}
+:root{--bg:#0a111f;--s1:#111a2e;--s2:#17233b;--ln:#22314d;--tx:#e9eff9;--mu:#8a9ab4;--ac:#23d5ab;--ac2:#0e7f6b;--bad:#ff6b6b;--ok:#3ddc84;--warn:#f5b84b;--r:14px;color-scheme:dark}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--tx);font:15px/1.45 Inter,system-ui,"Segoe UI",Roboto,sans-serif}
 button,input,textarea,select{font:inherit;color:inherit}
@@ -77,26 +77,67 @@ details{border-top:1px solid var(--ln);padding:12px 16px}details:first-of-type{b
 #toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0));transform:translateX(-50%) translateY(20px);background:#26354f;padding:10px 18px;border-radius:22px;opacity:0;transition:.2s;z-index:60;max-width:90vw;font-size:14px}
 #toast.on{opacity:1;transform:translateX(-50%)}
 
-/* Professional graphite UI refresh: restrained color, compact surfaces, no blue glow */
-header{background:#1b1d1f}
-.card{box-shadow:none}
-.card>h3{letter-spacing:.35px;text-transform:uppercase}
-.fld input:not([type=checkbox]),.fld textarea,.fld select{background:#1d1f21;border-radius:8px}
-.btn{border-radius:10px;background:#292b2d}
-.btn.pri{background:var(--ac);border-color:var(--ac);color:#1b241b}
-.btn.bad{background:#342225;border-color:#5a3438;color:#e9b6b9}
-.fab{background:#607b62;color:#f5f7f5;box-shadow:0 3px 10px #0006}
-.fi span{background:#252729;border-radius:8px}
-.fi button{background:#607b62;color:#f5f7f5}
-.pv{background:#1d1f21}
-#dr{background:#1c1e20}
-#dr .hd{background:#1b1d1f}
-.sheet{background:#222426;border-radius:14px 14px 0 0}
-#toast{background:#303335;border:1px solid #45484a}
-.ib:active,.row:active,#dr button:active{background:#ffffff0b}
-.tabs button.on{color:var(--ac);border-color:var(--ac)}
-.st.CONNECTED{background:#a5c99a12}
-.CONNECTED .dot{box-shadow:0 0 0 4px #a5c99a22}
+/* Juan VPN professional product UI layer — compact, neutral, non-template styling */
+:root{
+ --bg:#101214;--s1:#191c1f;--s2:#202428;--ln:#30363a;--tx:#f0f2f2;--mu:#a0a7aa;
+ --ac:#9dbb8a;--ac2:#647b54;--bad:#d16b6b;--ok:#93bd86;--warn:#c9a66b;--r:8px;
+ color-scheme:dark;
+}
+html,body{background:var(--bg);color:var(--tx);font-family:Roboto,"Noto Sans",system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;line-height:1.42}
+header{background:#151719;border-bottom:1px solid #303538;box-shadow:none}
+.bar{height:54px;padding:0 10px;gap:8px}
+.bar h1{font-size:16px;font-weight:700;letter-spacing:.65px}
+.ib{width:40px;height:40px;border-radius:8px}
+.ib:active{background:#ffffff0b}
+.tabs button{height:40px;font-size:13px;font-weight:600;letter-spacing:.1px;border-bottom-width:2px}
+main{padding:12px 12px calc(24px + env(safe-area-inset-bottom,0));max-width:620px}
+.card{background:var(--s1);border:1px solid #2c3134;border-radius:8px;margin-bottom:10px;box-shadow:none}
+.card>h3{padding:12px 14px 3px;font-size:11px;letter-spacing:.75px;text-transform:uppercase;color:#adb5b2;font-weight:700}
+.row{padding:11px 14px;min-height:50px;gap:10px;border-top-color:#2c3134}
+.row .t b{font-size:14px;font-weight:600}.row .t small{font-size:12px;color:#9ca4a7}
+.row svg.ch{stroke:#8e989c}
+.fld{padding:10px 14px 12px;border-top-color:#2c3134}
+.fld label{font-size:12px;color:#a8b0b2;margin-bottom:6px}
+.fld input:not([type=checkbox]),.fld textarea,.fld select{background:#111416;border:1px solid #343a3d;border-radius:7px;padding:10px 11px;font-size:14px}
+.fld input:focus,.fld textarea:focus,.fld select:focus{border-color:#80966e;box-shadow:0 0 0 1px #80966e33}
+.fld textarea{font-size:12.5px}
+input[type=radio]{width:20px;height:20px;border-width:1.5px;border-color:#8b9497}
+input[type=radio]:checked{border-color:var(--ac)}input[type=radio]:checked::after{width:8px;height:8px;background:var(--ac)}
+input.sw{width:42px;height:24px;border-radius:12px;background:#373d40}
+input.sw::after{width:18px;height:18px;top:3px;left:3px;background:#c4cbcd}
+input.sw:checked{background:#5c7150}input.sw:checked::after{left:21px;background:#f2f4ef}
+.badge{border-radius:5px;padding:3px 7px;background:#282d30;color:#aab2b5;font-size:10.5px}
+.pk{color:var(--ac);font-size:15px;font-weight:700}
+.btn{height:46px;border-radius:7px;background:#252a2d;border:1px solid #394043;font-size:14px;font-weight:600;box-shadow:none}
+.btn.pri{background:#879d75;border-color:#879d75;color:#121712}
+.btn.bad{background:#302021;border-color:#574043;color:#e3a6aa}
+.btn.sm{height:38px;border-radius:7px;padding:0 14px}
+.btns{gap:8px;padding:11px 14px;border-top-color:#2c3134}
+.start{height:48px;font-size:15px;margin-bottom:10px}
+.st{padding:12px 14px;gap:9px;background:transparent}
+.dot{width:9px;height:9px}
+.CONNECTED .dot{box-shadow:0 0 0 3px #93bd861f}.st.CONNECTED{background:#93bd8608}
+.stats{border-top-color:#2c3134}.stats div{padding:10px 12px;border-color:#2c3134}.stats b{font-size:14px}.stats small{font-size:10.5px;color:#969fa2}
+.fabwrap{right:14px;bottom:calc(14px + env(safe-area-inset-bottom,0));gap:8px}
+.fab{width:48px;height:48px;border-radius:10px;background:#303639;color:#e8ecec;font-size:21px;box-shadow:0 2px 6px #0005;border:1px solid #42494c}
+.fabitems{gap:8px}.fi span{background:#202426;border-color:#363d40;border-radius:7px;padding:7px 10px}.fi button{width:42px;height:42px;border-radius:9px;background:#303639;color:#e8ecec;border:1px solid #42494c}
+.cf button{width:38px;height:38px;border-radius:7px;background:#252a2d;border-color:#3a4144}
+.pg{font-size:11px;padding:3px 8px;border-radius:6px}
+pre{background:#111416;color:#d1d8d8;border:1px solid #2c3134;border-radius:7px;font-size:11.5px}
+.pv{background:#111416;border-color:#394143;border-radius:7px;color:#c1c9ca}
+.note{font-size:12px;color:#9ba4a6;padding:0 4px 12px}
+.warn{background:#2b261b;border-color:#51432c;color:#d6bd85;border-radius:7px}
+#dim{background:#0009;transition:none}
+#dr{background:#171a1c;border-right:1px solid #33393c;transition:transform .18s ease}
+#dr .hd{background:#1b1e20;border-bottom-color:#303639}
+#dr .hd b{font-size:17px;letter-spacing:.4px}#dr .hd small{color:#a7b0a7;font-size:11px}
+.sheet{background:#191c1f;border:1px solid #303639;border-radius:12px 12px 0 0;padding:16px 14px calc(16px + env(safe-area-inset-bottom,0))}
+.sheet h2{font-size:16px;font-weight:650}.sheet p{color:#b8c0c2;font-size:13px}
+.quick-actions{gap:8px}.quick-actions .btn{min-height:50px;border-radius:7px;padding:9px 11px}
+#toast{background:#282e30;border:1px solid #3a4244;border-radius:8px;padding:9px 14px;box-shadow:0 2px 10px #0005}
+@media(min-width:420px){main{padding-left:16px;padding-right:16px}.card>h3{padding-left:16px}.row{padding-left:16px;padding-right:16px}.fld{padding-left:16px;padding-right:16px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
+
 </style></head>
 <body>
 <div id="dim"></div><aside id="dr"></aside>
