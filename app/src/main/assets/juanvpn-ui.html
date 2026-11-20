@@ -138,6 +138,10 @@ pre{background:#111416;color:#d1d8d8;border:1px solid #2c3134;border-radius:7px;
 @media(min-width:420px){main{padding-left:16px;padding-right:16px}.card>h3{padding-left:16px}.row{padding-left:16px;padding-right:16px}.fld{padding-left:16px;padding-right:16px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
 
+
+/* Explicit heavy log typography: applied to the log container and each rendered line */
+pre.logpre { font-family: "Roboto Mono", "DejaVu Sans Mono", monospace !important; font-size: 13px !important; font-weight: 700 !important; letter-spacing: 0.12px !important; }
+pre.logpre .ll { font-weight: 700 !important; text-shadow: 0.45px 0 currentColor !important; }
 </style></head>
 <body>
 <div id="dim"></div><aside id="dr"></aside>
@@ -560,8 +564,3 @@ setTimeout(pushPing,600);
 document.addEventListener('click',e=>{const b=e.target.closest('[data-method]');if(!b)return;const m=METHODS.find(x=>x[0]===b.dataset.method);if(!m||!m[3])return;Object.assign(S,m[3]);if(m[0]==='v2'&&S.xProto==='ss')S.xProto='vless';save();render()});
 </script></body></html>
 
-/* Stronger connection log text for small-screen readability */
-pre.logpre, pre.logpre .ll, .logpre, .logpre .ll {
-  font-weight: 700 !important;
-  text-shadow: 0 0 0.35px currentColor;
-}
