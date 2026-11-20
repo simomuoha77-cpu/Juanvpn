@@ -83,9 +83,7 @@ details{border-top:1px solid var(--ln);padding:12px 16px}details:first-of-type{b
  --ac:#76D64B;--ac2:#4A9E2E;--bad:#d16b6b;--ok:#76D64B;--warn:#c9a66b;--r:8px;
  color-scheme:dark;
 }
-html,body{background:var(--bg);color:var(--tx);font-family:Roboto,"Noto Sans",system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;font-weight:500;line-height:1.42}
-/* Stronger, more readable typography across the interface */
-b,strong{font-weight:700}button,label,summary,.row .t b{font-weight:600}h1,h2,h3,h4{font-weight:700}
+html,body{background:var(--bg);color:var(--tx);font-family:Roboto,"Noto Sans",system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;line-height:1.42}
 header{background:#151719;border-bottom:1px solid #303538;box-shadow:none}
 .bar{height:54px;padding:0 10px;gap:8px}
 .bar h1{font-size:16px;font-weight:700;letter-spacing:.65px}
@@ -140,12 +138,6 @@ pre{background:#111416;color:#d1d8d8;border:1px solid #2c3134;border-radius:7px;
 @media(min-width:420px){main{padding-left:16px;padding-right:16px}.card>h3{padding-left:16px}.row{padding-left:16px;padding-right:16px}.fld{padding-left:16px;padding-right:16px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
 
-/* Stronger connection-log typography; colors and layout remain unchanged */
-pre.logpre, pre.logpre .ll, .logpre, .logpre .ll {
-  font-weight: 700 !important;
-  -webkit-text-stroke: 0.18px currentColor;
-  text-shadow: 0 0 0.35px currentColor;
-}
 </style></head>
 <body>
 <div id="dim"></div><aside id="dr"></aside>
@@ -567,3 +559,9 @@ setTimeout(()=>{try{if(ST.state==='DISCONNECTED'&&B()&&B().refreshIp)B().refresh
 setTimeout(pushPing,600);
 document.addEventListener('click',e=>{const b=e.target.closest('[data-method]');if(!b)return;const m=METHODS.find(x=>x[0]===b.dataset.method);if(!m||!m[3])return;Object.assign(S,m[3]);if(m[0]==='v2'&&S.xProto==='ss')S.xProto='vless';save();render()});
 </script></body></html>
+
+/* Stronger connection log text for small-screen readability */
+pre.logpre, pre.logpre .ll, .logpre, .logpre .ll {
+  font-weight: 700 !important;
+  text-shadow: 0 0 0.35px currentColor;
+}
