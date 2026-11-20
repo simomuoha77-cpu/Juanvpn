@@ -3,7 +3,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="dark"><title>JUAN VPN</title>
 <style>
-:root{--bg:#0a111f;--s1:#111a2e;--s2:#17233b;--ln:#22314d;--tx:#e9eff9;--mu:#8a9ab4;--ac:#23d5ab;--ac2:#0e7f6b;--bad:#ff6b6b;--ok:#3ddc84;--warn:#f5b84b;--r:14px;color-scheme:dark}
+:root{--bg:#17191b;--s1:#222426;--s2:#2b2d2f;--ln:#383b3d;--tx:#f1f2f2;--mu:#a1a5a7;--ac:#a5c99a;--ac2:#607b62;--bad:#e57373;--ok:#a5c99a;--warn:#d9b36c;--r:10px;color-scheme:dark}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--tx);font:15px/1.45 Inter,system-ui,"Segoe UI",Roboto,sans-serif}
 button,input,textarea,select{font:inherit;color:inherit}
@@ -76,6 +76,27 @@ details{border-top:1px solid var(--ln);padding:12px 16px}details:first-of-type{b
 .sheet h2{margin:0 0 12px;font-size:17px}.sheet p{margin:6px 0;color:#c3cfe2;font-size:14px}.quick-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}.quick-actions .btn{height:auto;min-height:54px;border-radius:12px;padding:10px 12px}.quick-actions .btn span{display:block;font-size:11px;font-weight:450;color:var(--mu);margin-top:3px}
 #toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0));transform:translateX(-50%) translateY(20px);background:#26354f;padding:10px 18px;border-radius:22px;opacity:0;transition:.2s;z-index:60;max-width:90vw;font-size:14px}
 #toast.on{opacity:1;transform:translateX(-50%)}
+
+/* Professional graphite UI refresh: restrained color, compact surfaces, no blue glow */
+header{background:#1b1d1f}
+.card{box-shadow:none}
+.card>h3{letter-spacing:.35px;text-transform:uppercase}
+.fld input:not([type=checkbox]),.fld textarea,.fld select{background:#1d1f21;border-radius:8px}
+.btn{border-radius:10px;background:#292b2d}
+.btn.pri{background:var(--ac);border-color:var(--ac);color:#1b241b}
+.btn.bad{background:#342225;border-color:#5a3438;color:#e9b6b9}
+.fab{background:#607b62;color:#f5f7f5;box-shadow:0 3px 10px #0006}
+.fi span{background:#252729;border-radius:8px}
+.fi button{background:#607b62;color:#f5f7f5}
+.pv{background:#1d1f21}
+#dr{background:#1c1e20}
+#dr .hd{background:#1b1d1f}
+.sheet{background:#222426;border-radius:14px 14px 0 0}
+#toast{background:#303335;border:1px solid #45484a}
+.ib:active,.row:active,#dr button:active{background:#ffffff0b}
+.tabs button.on{color:var(--ac);border-color:var(--ac)}
+.st.CONNECTED{background:#a5c99a12}
+.CONNECTED .dot{box-shadow:0 0 0 4px #a5c99a22}
 </style></head>
 <body>
 <div id="dim"></div><aside id="dr"></aside>
