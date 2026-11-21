@@ -7,8 +7,8 @@ android {
         applicationId = "com.juanvpn.app"
         minSdk = 23
         targetSdk = 35
-        versionCode = 24
-        versionName = "2.9.5"
+        versionCode = 25
+        versionName = "2.9.6"
     }
     signingConfigs {
         getByName("debug") {

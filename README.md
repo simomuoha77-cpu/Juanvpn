@@ -154,3 +154,7 @@ Step 3 is only used when the SNI is a different name from the server's own. If t
 ## Cloud save that does not give up (v2.9.5)
 
 "Save to cloud" used to fail with "connection closed" whenever the network cut the connection to the cloud server. The request now tries three routes: the normal one, then through the running VPN tunnel, then plain IPv4. HTTP error replies from the server are never retried. If every route fails, the app offers to make an offline config code (no server needed).
+
+## Importing a config that has no password (v2.9.6)
+
+A config exported without a password is locked to the exporting phone's own key. Importing it there used to show a password box anyway. The importer now tries the phone's key first and only asks for a password when the file really has a password slot. A file that is bound to another phone and has no password now says so plainly instead of asking for a password that does not exist.

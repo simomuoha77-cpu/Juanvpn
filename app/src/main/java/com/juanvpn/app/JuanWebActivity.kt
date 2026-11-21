@@ -353,6 +353,7 @@ class JuanWebActivity : Activity() {
         @JavascriptInterface fun makeUnlockedHJ(config: String): String = try {
             HJConfig.unlocked(config)
         } catch (e: Exception) { "ERROR:${e.message ?: "Could not create HJ config"}" }
+        @JavascriptInterface fun hjHint(text: String): String = HJConfig.hint(text)
         @JavascriptInterface fun openHJ(text: String, password: String): String = try {
             if (HJConfig.isHJ01(text)) HJConfig.openHJ01(this@JuanWebActivity, text, password)
             else {

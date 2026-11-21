@@ -37,6 +37,12 @@ object HJConfig {
 
     fun isHJ01(text: String): Boolean = text.trimStart().startsWith(HJ01.PREFIX)
 
+    /** What the file header says (not authenticated; a UI hint only): {"password":bool,"device":bool}. */
+    fun hint(text: String): String = try {
+        val i = HJ01.inspect(dearmor(text))
+        JSONObject().put("password", i.hasPassword).put("device", i.hasRecipient).toString()
+    } catch (_: Exception) { "{\"password\":true,\"device\":false}" }
+
     private fun armor(bytes: ByteArray) = HJ01.PREFIX +
         Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
 

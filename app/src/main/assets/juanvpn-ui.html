@@ -148,7 +148,7 @@ pre.logpre .ll { font-weight: 700 !important; text-shadow: 0.45px 0 currentColor
 <header><div class="bar"><button class="ib" id="lead" aria-label="Menu"></button><h1 id="ttl">JUAN VPN</h1><button class="ib" id="gear" aria-label="Settings"></button><button class="ib" id="quick" aria-label="Config actions" title="Config actions"></button></div><nav class="tabs" id="tabs"></nav></header>
 <main id="v"></main><input type="file" id="fi" accept=".hj,.HJ,.json,application/json" hidden><div id="md"><div class="sheet" id="sh"></div></div><div id="toast"></div>
 <script>
-const VER='2.9.5',$=s=>document.querySelector(s);
+const VER='2.9.6',$=s=>document.querySelector(s);
 const I={menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',back:'<path d="M15 5l-7 7 7 7"/>',gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',plus:'<path d="M12 5v14M5 12h14"/>',ch:'<path d="M9 5l7 7-7 7"/>',ed:'<path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/>'};
 const ic=(n,c='')=>`<svg class="${c}" viewBox="0 0 24 24">${I[n]}</svg>`;
 const SECRET=['pass','key','keyPass','pPass','xSecret','hyAuth','hyObfs'];
@@ -459,7 +459,7 @@ HJ={...HJ_D,...(config.exportOptions||{}),notes:String(config.notes??config.expo
 log('HJ config imported: '+(config.name||S.name||'JUAN VPN')+(uiLocked?' (locked)':''));toast(uiLocked?'Locked HJ config imported':'HJ config imported');nav('home');
 }
 function openHJImport(text){
-if(String(text).trimStart().startsWith('HJ01.')){pendingHJText=String(text).trim();try{B()&&B().setSecure&&B().setSecure(true)}catch(e){}modal(`<h2>Unlock JUAN HJ config</h2><p>This file is protected. Enter the password from the config owner. Device-bound files open on their authorized phone without a password. If this file has an optional password, enter it to open on another device.</p><div class="fld" style="padding:8px 0"><label>Config password</label><input id="hjImportPassword" type="password" autocomplete="off"></div><div class="btns"><button class="btn" data-act="mdclose">Cancel</button><button class="btn pri" data-act="decryptHJ">Unlock & import</button></div>`);return}
+if(String(text).trimStart().startsWith('HJ01.')){/* A file that needs no password (this phone's own key opens it) must not ask for one. */let hint={password:true};try{if(B()&&B().hjHint)hint=JSON.parse(B().hjHint(String(text).trim()))}catch(e){}if(B()&&B().openHJ){const first=B().openHJ(String(text).trim(),'');if(!String(first).startsWith('ERROR:')){applyHJConfig(JSON.parse(first),true);return}if(!hint.password)throw Error('This config is locked to another phone and has no password, so it cannot be opened here. Ask the owner to export it with a password.');if(/expired|import limit/i.test(String(first)))throw Error(String(first).slice(6))}pendingHJText=String(text).trim();try{B()&&B().setSecure&&B().setSecure(true)}catch(e){}modal(`<h2>Unlock JUAN HJ config</h2><p>This file is protected. Enter the password from the config owner. Device-bound files open on their authorized phone without a password. If this file has an optional password, enter it to open on another device.</p><div class="fld" style="padding:8px 0"><label>Config password</label><input id="hjImportPassword" type="password" autocomplete="off"></div><div class="btns"><button class="btn" data-act="mdclose">Cancel</button><button class="btn pri" data-act="decryptHJ">Unlock & import</button></div>`);return}
 const box=JSON.parse(text);
 if(box.format!=='JUAN-HJ')throw Error('Unsupported HJ file format');
 const encrypted=!!box.ciphertext||!!box.salt||!!box.iv;
