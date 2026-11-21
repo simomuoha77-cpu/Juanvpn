@@ -37,8 +37,47 @@ object HJConfig {
 
     fun isHJ01(text: String): Boolean = text.trimStart().startsWith(HJ01.PREFIX)
 
+    /**
+     * "Open" HJ files (exported with no password): not readable in a text editor, but any copy of the app opens them
+     * without asking. They are sealed with a key built into the app, so this hides the contents from casual readers;
+     * it is NOT protection against someone who takes the key out of the APK. Use a password for real protection.
+     */
+    private const val OPEN_PREFIX = "HJO1."
+    private const val OPEN_AAD = "JUAN-HJ-OPEN|1"
+    fun isOpen(text: String): Boolean = text.trimStart().startsWith(OPEN_PREFIX)
+
+    private fun openKey(): SecretKeySpec = SecretKeySpec(
+        java.security.MessageDigest.getInstance("SHA-256").digest("JUAN-HJ-OPEN-KEY|v1|7c1f0d9a-5b3e-4e8a-9d52-juanvpn-hj".toByteArray()), "AES")
+
+    fun sealOpen(configJson: String): String {
+        val plain = JSONObject(configJson).toString().toByteArray(Charsets.UTF_8)
+        try {
+            val iv = ByteArray(12).also { random.nextBytes(it) }
+            val c = Cipher.getInstance("AES/GCM/NoPadding")
+            c.init(Cipher.ENCRYPT_MODE, openKey(), GCMParameterSpec(128, iv))
+            c.updateAAD(OPEN_AAD.toByteArray())
+            return OPEN_PREFIX + Base64.encodeToString(iv + c.doFinal(plain), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        } finally { plain.fill(0) }
+    }
+
+    fun openOpen(text: String): String {
+        val raw = try { Base64.decode(text.trim().removePrefix(OPEN_PREFIX).filter { !it.isWhitespace() }, Base64.URL_SAFE) }
+            catch (_: IllegalArgumentException) { throw IllegalArgumentException("This HJ file is damaged") }
+        require(raw.size > 28) { "This HJ file is damaged" }
+        val c = Cipher.getInstance("AES/GCM/NoPadding")
+        c.init(Cipher.DECRYPT_MODE, openKey(), GCMParameterSpec(128, raw.copyOfRange(0, 12)))
+        c.updateAAD(OPEN_AAD.toByteArray())
+        val plain = try { c.doFinal(raw, 12, raw.size - 12) }
+            catch (_: java.security.GeneralSecurityException) { throw IllegalArgumentException("This HJ file is damaged or was changed") }
+        try {
+            val obj = JSONObject(String(plain, Charsets.UTF_8))
+            require(obj.length() > 0) { "HJ file has no configuration" }
+            return obj.toString()
+        } finally { plain.fill(0) }
+    }
+
     /** What the file header says (not authenticated; a UI hint only): {"password":bool,"device":bool}. */
-    fun hint(text: String): String = try {
+    fun hint(text: String): String = if (isOpen(text)) "{\"password\":false,\"device\":false,\"open\":true}" else try {
         val i = HJ01.inspect(dearmor(text))
         JSONObject().put("password", i.hasPassword).put("device", i.hasRecipient).toString()
     } catch (_: Exception) { "{\"password\":true,\"device\":false}" }

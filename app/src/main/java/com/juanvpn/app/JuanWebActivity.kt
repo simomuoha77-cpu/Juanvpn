@@ -353,9 +353,14 @@ class JuanWebActivity : Activity() {
         @JavascriptInterface fun makeUnlockedHJ(config: String): String = try {
             HJConfig.unlocked(config)
         } catch (e: Exception) { "ERROR:${e.message ?: "Could not create HJ config"}" }
+        /** Export for "no password": sealed with the app's built-in key; any copy of the app imports it without a prompt. */
+        @JavascriptInterface fun makeOpenHJ(config: String): String = try {
+            HJConfig.sealOpen(config)
+        } catch (e: Exception) { "ERROR:${e.message ?: "Could not create HJ config"}" }
         @JavascriptInterface fun hjHint(text: String): String = HJConfig.hint(text)
         @JavascriptInterface fun openHJ(text: String, password: String): String = try {
-            if (HJConfig.isHJ01(text)) HJConfig.openHJ01(this@JuanWebActivity, text, password)
+            if (HJConfig.isOpen(text)) HJConfig.openOpen(text)
+            else if (HJConfig.isHJ01(text)) HJConfig.openHJ01(this@JuanWebActivity, text, password)
             else {
                 val box = JSONObject(text)
                 if (box.optBoolean("locked", false)) {

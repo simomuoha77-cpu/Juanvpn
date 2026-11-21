@@ -155,6 +155,6 @@ Step 3 is only used when the SNI is a different name from the server's own. If t
 
 "Save to cloud" used to fail with "connection closed" whenever the network cut the connection to the cloud server. The request now tries three routes: the normal one, then through the running VPN tunnel, then plain IPv4. HTTP error replies from the server are never retried. If every route fails, the app offers to make an offline config code (no server needed).
 
-## Configs without a password are open (v2.9.7)
+## Configs without a password (v2.9.8)
 
-Export with no password and the file is a plain open `.HJ` that anyone can import, on any phone, with no prompt. Its contents (including SSH details) are readable by whoever has the file, and the in-app locks (owner lock, expiry, Device ID lock) are enforced by the app only, so they do not protect against someone who reads or edits the file. Set a password (10+ characters) to get an encrypted file. The export screen shows a warning when no password is set. Older no-password files that were bound to one phone still open on that phone without a prompt.
+Export with no password and the file is an "open" `.HJ` (`HJO1.` + encrypted text). It is not readable in a text editor, and any copy of JUAN VPN imports it with no prompt, on any phone. It is sealed with a key built into the app, so it only hides the contents from casual readers; someone who takes that key out of the APK can read it. Owner lock, expiry and Device ID lock travel inside the file and are enforced by the app. Set a password (10+ characters) for a properly encrypted file. Older plain-JSON `.HJ` files and phone-bound files still import.
