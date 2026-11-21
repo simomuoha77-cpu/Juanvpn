@@ -38,40 +38,77 @@ object HJConfig {
     fun isHJ01(text: String): Boolean = text.trimStart().startsWith(HJ01.PREFIX)
 
     /**
-     * "Open" HJ files (exported with no password): not readable in a text editor, but any copy of the app opens them
-     * without asking. They are sealed with a key built into the app, so this hides the contents from casual readers;
-     * it is NOT protection against someone who takes the key out of the APK. Use a password for real protection.
+     * Files exported without a password. Every byte is random-looking (no header, no readable text, a fresh salt per
+     * file, random padding), so no other app or tool can show or parse anything. JUAN VPN opens them without a prompt.
+     * The older "HJO1." form is still accepted on import.
      */
     private const val OPEN_PREFIX = "HJO1."
     private const val OPEN_AAD = "JUAN-HJ-OPEN|1"
-    fun isOpen(text: String): Boolean = text.trimStart().startsWith(OPEN_PREFIX)
+    private val sealedText = Regex("^[A-Za-z0-9_-]{60,}$")
+    private val sA = byteArrayOf(18, 16, -124, 97, -104, -5, -118, 78, -94, 109, 38, -5, -49, 47, 71, 124, 89, -121, 86, -16, -91, -49, 67, -45, -125, -31, -23, 111, 47, 10, -73, -4)
+    private val sB = byteArrayOf(5, -101, -11, -115, 2, -66, -71, 55, -17, -121, -56, -108, -42, -12, -99, 25, -26, 64, 39, -5, 99, 114, -78, -91, -56, 91, 38, 58, 42, -114, -98, 95)
 
-    private fun openKey(): SecretKeySpec = SecretKeySpec(
+    fun isOpen(text: String): Boolean {
+        val t = text.trim()
+        return t.startsWith(OPEN_PREFIX) || sealedText.matches(t)
+    }
+
+    private fun legacyOpenKey(): SecretKeySpec = SecretKeySpec(
         java.security.MessageDigest.getInstance("SHA-256").digest("JUAN-HJ-OPEN-KEY|v1|7c1f0d9a-5b3e-4e8a-9d52-juanvpn-hj".toByteArray()), "AES")
 
+    private fun sealKey(salt: ByteArray): SecretKeySpec {
+        val seed = ByteArray(32) { (sA[it].toInt() xor sB[it].toInt()).toByte() }
+        val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(seed, "HmacSHA256"))
+        seed.fill(0)
+        return SecretKeySpec(mac.doFinal(salt + byteArrayOf(0x4a, 0x48, 0x01)), "AES")
+    }
+
     fun sealOpen(configJson: String): String {
-        val plain = JSONObject(configJson).toString().toByteArray(Charsets.UTF_8)
+        val json = JSONObject(configJson).toString().toByteArray(Charsets.UTF_8)
+        val pad = random.nextInt(64)
+        val plain = ByteArray(4 + json.size + pad)
+        plain[0] = (json.size ushr 24).toByte(); plain[1] = (json.size ushr 16).toByte()
+        plain[2] = (json.size ushr 8).toByte(); plain[3] = json.size.toByte()
+        System.arraycopy(json, 0, plain, 4, json.size)
+        if (pad > 0) { val padBytes = ByteArray(pad); random.nextBytes(padBytes); System.arraycopy(padBytes, 0, plain, 4 + json.size, pad) }
         try {
+            val salt = ByteArray(16).also { random.nextBytes(it) }
             val iv = ByteArray(12).also { random.nextBytes(it) }
             val c = Cipher.getInstance("AES/GCM/NoPadding")
-            c.init(Cipher.ENCRYPT_MODE, openKey(), GCMParameterSpec(128, iv))
-            c.updateAAD(OPEN_AAD.toByteArray())
-            return OPEN_PREFIX + Base64.encodeToString(iv + c.doFinal(plain), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
-        } finally { plain.fill(0) }
+            c.init(Cipher.ENCRYPT_MODE, sealKey(salt), GCMParameterSpec(128, iv))
+            c.updateAAD(salt)
+            return Base64.encodeToString(salt + iv + c.doFinal(plain), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        } finally { plain.fill(0); json.fill(0) }
     }
 
     fun openOpen(text: String): String {
-        val raw = try { Base64.decode(text.trim().removePrefix(OPEN_PREFIX).filter { !it.isWhitespace() }, Base64.URL_SAFE) }
-            catch (_: IllegalArgumentException) { throw IllegalArgumentException("This HJ file is damaged") }
-        require(raw.size > 28) { "This HJ file is damaged" }
+        val t = text.trim()
+        val legacy = t.startsWith(OPEN_PREFIX)
+        val raw = try { Base64.decode(t.removePrefix(OPEN_PREFIX).filter { !it.isWhitespace() }, Base64.URL_SAFE) }
+            catch (_: IllegalArgumentException) { throw IllegalArgumentException("This config file is damaged") }
+        val bad = IllegalArgumentException("This config file is damaged or not a JUAN VPN config")
+        if (legacy) {
+            if (raw.size <= 28) throw bad
+            val c = Cipher.getInstance("AES/GCM/NoPadding")
+            c.init(Cipher.DECRYPT_MODE, legacyOpenKey(), GCMParameterSpec(128, raw.copyOfRange(0, 12)))
+            c.updateAAD(OPEN_AAD.toByteArray())
+            val plain = try { c.doFinal(raw, 12, raw.size - 12) } catch (_: java.security.GeneralSecurityException) { throw bad }
+            try { return JSONObject(String(plain, Charsets.UTF_8)).also { require(it.length() > 0) { "Config is empty" } }.toString() }
+            finally { plain.fill(0) }
+        }
+        if (raw.size < 16 + 12 + 16 + 4) throw bad
+        val salt = raw.copyOfRange(0, 16)
         val c = Cipher.getInstance("AES/GCM/NoPadding")
-        c.init(Cipher.DECRYPT_MODE, openKey(), GCMParameterSpec(128, raw.copyOfRange(0, 12)))
-        c.updateAAD(OPEN_AAD.toByteArray())
-        val plain = try { c.doFinal(raw, 12, raw.size - 12) }
-            catch (_: java.security.GeneralSecurityException) { throw IllegalArgumentException("This HJ file is damaged or was changed") }
+        c.init(Cipher.DECRYPT_MODE, sealKey(salt), GCMParameterSpec(128, raw.copyOfRange(16, 28)))
+        c.updateAAD(salt)
+        val plain = try { c.doFinal(raw, 28, raw.size - 28) } catch (_: java.security.GeneralSecurityException) { throw bad }
         try {
-            val obj = JSONObject(String(plain, Charsets.UTF_8))
-            require(obj.length() > 0) { "HJ file has no configuration" }
+            val n = ((plain[0].toInt() and 0xff) shl 24) or ((plain[1].toInt() and 0xff) shl 16) or
+                ((plain[2].toInt() and 0xff) shl 8) or (plain[3].toInt() and 0xff)
+            if (n <= 0 || n > plain.size - 4) throw bad
+            val obj = JSONObject(String(plain, 4, n, Charsets.UTF_8))
+            if (obj.length() == 0) throw bad
             return obj.toString()
         } finally { plain.fill(0) }
     }

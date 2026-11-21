@@ -374,14 +374,14 @@ class JuanProxy(private val c: JuanCfg, private val log: (String) -> Unit, priva
                 val ssl: SSLSocket = try {
                     if (!c.verify) { log("TLS: warning - certificate verification is OFF"); wrap(false) }
                     else if (front && frontKey in relaxedFronts) {
-                        log("TLS: borrowed SNI, certificate not verified (SSH host key is checked next)")
+                        log("TLS: SNI front, certificate check skipped")
                         wrap(false)
                     } else try { wrap(true) } catch (e: CertMismatch) {
                         if (!front) throw e.real
-                        log("TLS: certificate is not for the borrowed SNI '$name' (normal for SNI fronting), checking '$host' instead")
+                        log("TLS: certificate is for another name, checking $host")
                         s = reopen()
                         try { wrap(true, host) } catch (e2: CertMismatch) {
-                            log("TLS: certificate not verifiable, continuing; the SSH host key is the identity check")
+                            log("TLS: certificate not verified, continuing")
                             relaxedFronts.add(frontKey)
                             s = reopen()
                             wrap(false)
