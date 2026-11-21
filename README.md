@@ -155,6 +155,6 @@ Step 3 is only used when the SNI is a different name from the server's own. If t
 
 "Save to cloud" used to fail with "connection closed" whenever the network cut the connection to the cloud server. The request now tries three routes: the normal one, then through the running VPN tunnel, then plain IPv4. HTTP error replies from the server are never retried. If every route fails, the app offers to make an offline config code (no server needed).
 
-## Importing a config that has no password (v2.9.6)
+## Configs without a password are open (v2.9.7)
 
-A config exported without a password is locked to the exporting phone's own key. Importing it there used to show a password box anyway. The importer now tries the phone's key first and only asks for a password when the file really has a password slot. A file that is bound to another phone and has no password now says so plainly instead of asking for a password that does not exist.
+Export with no password and the file is a plain open `.HJ` that anyone can import, on any phone, with no prompt. Its contents (including SSH details) are readable by whoever has the file, and the in-app locks (owner lock, expiry, Device ID lock) are enforced by the app only, so they do not protect against someone who reads or edits the file. Set a password (10+ characters) to get an encrypted file. The export screen shows a warning when no password is set. Older no-password files that were bound to one phone still open on that phone without a prompt.

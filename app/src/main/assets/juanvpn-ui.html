@@ -148,7 +148,7 @@ pre.logpre .ll { font-weight: 700 !important; text-shadow: 0.45px 0 currentColor
 <header><div class="bar"><button class="ib" id="lead" aria-label="Menu"></button><h1 id="ttl">JUAN VPN</h1><button class="ib" id="gear" aria-label="Settings"></button><button class="ib" id="quick" aria-label="Config actions" title="Config actions"></button></div><nav class="tabs" id="tabs"></nav></header>
 <main id="v"></main><input type="file" id="fi" accept=".hj,.HJ,.json,application/json" hidden><div id="md"><div class="sheet" id="sh"></div></div><div id="toast"></div>
 <script>
-const VER='2.9.6',$=s=>document.querySelector(s);
+const VER='2.9.7',$=s=>document.querySelector(s);
 const I={menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',back:'<path d="M15 5l-7 7 7 7"/>',gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',plus:'<path d="M12 5v14M5 12h14"/>',ch:'<path d="M9 5l7 7-7 7"/>',ed:'<path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/>'};
 const ic=(n,c='')=>`<svg class="${c}" viewBox="0 0 24 24">${I[n]}</svg>`;
 const SECRET=['pass','key','keyPass','pPass','xSecret','hyAuth','hyObfs'];
@@ -444,6 +444,7 @@ if(!locked){const out=B().makeUnlockedHJ(config);if(String(out).startsWith('ERRO
 const password=String(HJ.password||'');
 if(password&&password.length<10)throw Error('Optional HJ password must contain at least 10 characters');
 if(password&&password!==HJ.confirmPassword)throw Error('HJ passwords do not match');
+if(!password){const open=B().makeUnlockedHJ(config);if(String(open).startsWith('ERROR:'))throw Error(String(open).slice(6));return open}
 const infoRaw=B().deviceKeyInfo();let info;try{info=JSON.parse(infoRaw)}catch(e){throw Error('Could not read this phone security key')}
 if(!info||!info.supported||!info.key){if(!password){throw Error('Automatic passwordless protection needs Android 12+. Set an optional password to export on this device.')}const out=B().makeHJ(config,password);if(String(out).startsWith('ERROR:'))throw Error(String(out).slice(6));return out}
 const out=B().makeHJForDevice(config,password,info.key,0,0);if(String(out).startsWith('ERROR:'))throw Error(String(out).slice(6));return out;
@@ -478,7 +479,7 @@ const rows=[['Tunnel Type',tt]];
 if(SSHY()){rows.push(['SSH Port',S.sshPort]);rows.push(['SSH Private Key',yn(!!S.key)])}if(S.tunnel!=='ssh')rows.push(['Server Port',S.xPort]);
 rows.push(['DNS Type',dns]);
 return rows.map(r=>`<p><b>${esc(r[0])}:</b> ${esc(r[1])}</p>`).join('')+`<p style="margin-top:14px"><b>Custom Routes Enabled:</b> ${yn(routes)}</p>`}
-function exportConfirm(kind){pendingKind=kind;modal(`<h2>Export config</h2>${exportSummary()}<div class="btns" style="margin-top:14px"><button class="btn" data-act="mdclose">Cancel</button><button class="btn pri" data-act="doExport">Export Config</button></div>`)}
+function exportConfirm(kind){pendingKind=kind;modal(`<h2>Export config</h2>${exportSummary()}${HJ.password?'':'<div class="warn">No password set: anyone who gets this file can import it, and the details inside are not encrypted. Set a password to protect it.</div>'}<div class="btns" style="margin-top:14px"><button class="btn" data-act="mdclose">Cancel</button><button class="btn pri" data-act="doExport">Export Config</button></div>`)}
 function cloudOptions(){const r=(v,t,sub,ck)=>`<label class="row"><input type="radio" name="cm" value="${v}" ${ck?'checked':''} onchange="document.getElementById('cmDate').style.display=this.value==='expiry'?'block':'none'"><div class="t"><b>${t}</b>${sub?`<small style="white-space:normal">${sub}</small>`:''}</div></label>`;
 modal(`<h2>Save to cloud</h2>${r('normal','Normal','Available until the server removes it (180 days by default).',1)}${r('burn','Burn after import','Deleted from the server after the first import.')}${r('expiry','Set Expiry Date','Deleted from the server after this date.')}<div class="fld" id="cmDate" style="display:none"><label>Available through the end of</label><input type="date" id="cloudDate"></div><div class="btns" style="margin-top:12px"><button class="btn" data-act="mdclose">Cancel</button><button class="btn pri" data-act="cloudGo">Export Config</button></div>`)}
 function copyText(t,msg){if(B()&&B().copyText){B().copyText(t);toast(msg||'Copied')}else if(navigator.clipboard?.writeText)navigator.clipboard.writeText(t).then(()=>toast(msg||'Copied'),()=>toast('Copy failed'));else toast('Copy failed')}
