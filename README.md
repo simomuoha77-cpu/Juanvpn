@@ -150,3 +150,7 @@ With a front/bug domain as SNI (for example `myaccount.telkom.co.ke` in front of
 3. continue without a certificate check. The SSH host key (trust prompt / pinned fingerprint) then identifies the server.
 
 Step 3 is only used when the SNI is a different name from the server's own. If the SNI is the server's own name, a bad certificate still fails. The profile is never changed; the log shows which step was used.
+
+## Cloud save that does not give up (v2.9.5)
+
+"Save to cloud" used to fail with "connection closed" whenever the network cut the connection to the cloud server. The request now tries three routes: the normal one, then through the running VPN tunnel, then plain IPv4. HTTP error replies from the server are never retried. If every route fails, the app offers to make an offline config code (no server needed).

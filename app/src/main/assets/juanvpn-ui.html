@@ -148,7 +148,7 @@ pre.logpre .ll { font-weight: 700 !important; text-shadow: 0.45px 0 currentColor
 <header><div class="bar"><button class="ib" id="lead" aria-label="Menu"></button><h1 id="ttl">JUAN VPN</h1><button class="ib" id="gear" aria-label="Settings"></button><button class="ib" id="quick" aria-label="Config actions" title="Config actions"></button></div><nav class="tabs" id="tabs"></nav></header>
 <main id="v"></main><input type="file" id="fi" accept=".hj,.HJ,.json,application/json" hidden><div id="md"><div class="sheet" id="sh"></div></div><div id="toast"></div>
 <script>
-const VER='2.9.4',$=s=>document.querySelector(s);
+const VER='2.9.5',$=s=>document.querySelector(s);
 const I={menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',back:'<path d="M15 5l-7 7 7 7"/>',gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',plus:'<path d="M12 5v14M5 12h14"/>',ch:'<path d="M9 5l7 7-7 7"/>',ed:'<path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/>'};
 const ic=(n,c='')=>`<svg class="${c}" viewBox="0 0 24 24">${I[n]}</svg>`;
 const SECRET=['pass','key','keyPass','pPass','xSecret','hyAuth','hyObfs'];
@@ -487,10 +487,11 @@ function cloudResultModal(r){const f=(ic,id,v)=>`<div class="cf"><input id="${id
 const uri=String(r.uri||`${cloudServer()}/${encodeURIComponent(r.key)}`);
 window._cloudAll=uri;
 modal(`<h2>Cloud Config Key</h2><div class="h" style="margin:0 0 4px">Key</div>${f('key','cfKey',r.key)}<div class="h" style="margin:0 0 4px">Emoji key</div>${f('emoji','cfEmoji',r.emoji)}<div class="h" style="margin:0 0 4px">Share URI</div>${f('share URI','cfUri',uri)}<div class="btns"><button class="btn" data-act="mdclose">OK</button><button class="btn" onclick="B().shareText&&B().shareText(window._cloudAll)">Share</button><button class="btn pri" onclick="copyText(window._cloudAll,'Share URI copied')">Copy URI</button></div>`) }
+function cloudFailModal(msg){modal(`<h2>Could not save to cloud</h2><p>${esc(msg||'Cloud request failed')}</p><p>You can still share this config without any server by making a config code.</p><div class="btns"><button class="btn" data-act="mdclose">Close</button><button class="btn pri" data-act="codeHJ">Create config code</button></div>`)}
 function cloudFetchStart(input){try{if(!B()||!B().cloudFetch)throw Error('Cloud import is available only in the Android app');if(!String(input).trim())throw Error('Paste a link, key or emoji key');const id='d'+Date.now();reqs[id]='dl';toast('Fetching config…');B().cloudFetch(id,cloudServer(),String(input))}catch(e){toast(e.message)}}
 JuanUI.cloudResult=(id,t)=>{const kind=reqs[id];delete reqs[id];let r;try{r=JSON.parse(t)}catch(e){toast('Cloud error');return}
 if(kind==='ping'){toast(r.ok?r.text:r.error);return}
-if(!r.ok){toast(r.error||'Cloud request failed');log('Cloud: '+(r.error||'failed'));return}
+if(!r.ok){log('Cloud: '+(r.error||'failed'));if(kind==='up')cloudFailModal(r.error);else toast(r.error||'Cloud request failed');return}
 if(kind==='up'){clearHJPassword();cloudResultModal(r);log('Cloud: config uploaded')}
 else if(kind==='dl'){unmodal();JuanUI.importFile(r.text)}};
 JuanUI.cloudImportLink=u=>{nav('servers');cloudFetchStart(u)};

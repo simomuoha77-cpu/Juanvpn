@@ -4,6 +4,11 @@ import android.net.Uri
 import android.util.Base64
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.json.JSONObject
+import java.io.IOException
+import java.net.Inet4Address
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.net.URL
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -172,8 +177,115 @@ object JuanCloud {
 
     /* ---------------------------------------------------------------- network */
 
+    /**
+     * Normal request first. If the connection is cut off (a network that resets connections to some hosts, a broken
+     * IPv6 route, ...) it tries the same request through the running tunnel, then over IPv4 only. HTTP error replies
+     * (4xx/5xx) are real answers from the server and are returned as they are, never retried.
+     */
     private fun http(method: String, url: String, body: String?): Pair<Int, String> {
         require(url.startsWith("https://")) { "The cloud server must use https" }
+        var last: Exception? = null
+        try { return httpUrlConn(method, url, body) }
+        catch (e: IllegalArgumentException) { throw e }
+        catch (e: IOException) { last = e }
+        val tunnel = JuanBus.socksPort
+        if (tunnel > 0) try { return httpRaw(method, url, body, tunnel) } catch (e: IOException) { last = e }
+        try { return httpRaw(method, url, body, 0) } catch (e: IOException) { last = e }
+        throw IOException("Could not reach the cloud server (" + (last?.message ?: last?.javaClass?.simpleName ?: "no reply") +
+            "). Check the internet connection and try again.")
+    }
+
+    private fun readFully(i: java.io.InputStream, b: ByteArray) {
+        var n = 0
+        while (n < b.size) { val r = i.read(b, n, b.size - n); if (r < 0) throw IOException("closed"); n += r }
+    }
+
+    private fun socks5Connect(s: Socket, host: String, port: Int) {
+        val o = s.getOutputStream(); val i = s.getInputStream()
+        o.write(byteArrayOf(5, 1, 0)); o.flush()
+        val m = ByteArray(2); readFully(i, m)
+        if (m[0].toInt() != 5 || m[1].toInt() != 0) throw IOException("The tunnel refused the connection")
+        val hb = host.toByteArray()
+        o.write(byteArrayOf(5, 1, 0, 3, hb.size.toByte()) + hb + byteArrayOf((port shr 8).toByte(), (port and 0xFF).toByte())); o.flush()
+        val r = ByteArray(4); readFully(i, r)
+        if (r[1].toInt() != 0) throw IOException("The tunnel could not reach $host")
+        readFully(i, ByteArray(when (r[3].toInt()) { 1 -> 6; 4 -> 18; else -> i.read() + 2 }))
+    }
+
+    private fun dechunk(b: ByteArray): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        var p = 0
+        while (p < b.size) {
+            var e = p
+            while (e + 1 < b.size && !(b[e] == 13.toByte() && b[e + 1] == 10.toByte())) e++
+            if (e + 1 >= b.size) break
+            val size = String(b, p, e - p, Charsets.ISO_8859_1).substringBefore(';').trim().toIntOrNull(16) ?: break
+            if (size == 0) break
+            p = e + 2
+            val end = minOf(p + size, b.size)
+            out.write(b, p, end - p)
+            p = end + 2
+        }
+        return out.toByteArray()
+    }
+
+    /** Minimal HTTPS client: certificate-checked TLS, IPv4 first, optionally through the local tunnel forwarder. */
+    private fun httpRaw(method: String, url: String, body: String?, socksPort: Int): Pair<Int, String> {
+        val u = URL(url)
+        val host = u.host
+        val port = if (u.port > 0) u.port else 443
+        val path = u.path.ifEmpty { "/" } + (u.query?.let { "?$it" } ?: "")
+        val plain: Socket
+        if (socksPort > 0) {
+            plain = Socket()
+            try {
+                plain.connect(InetSocketAddress("127.0.0.1", socksPort), 5_000)
+                plain.soTimeout = 20_000
+                socks5Connect(plain, host, port)
+            } catch (e: IOException) { try { plain.close() } catch (_: Exception) {}; throw e }
+        } else {
+            var found: Socket? = null
+            var err: IOException? = null
+            for (a in InetAddress.getAllByName(host).sortedBy { if (it is Inet4Address) 0 else 1 }) {
+                val t = Socket()
+                try { t.connect(InetSocketAddress(a, port), 8_000); found = t; break }
+                catch (e: IOException) { err = e; try { t.close() } catch (_: Exception) {} }
+            }
+            plain = found ?: throw (err ?: IOException("No address for $host"))
+        }
+        try {
+            val ssl = tlsWrap(plain, host, port, true)
+            ssl.soTimeout = 25_000
+            val payload = body?.toByteArray(Charsets.UTF_8)
+            val head = StringBuilder("$method $path HTTP/1.1\r\nHost: $host\r\nUser-Agent: JUAN-VPN\r\nAccept: application/json\r\nConnection: close\r\n")
+            if (payload != null) head.append("Content-Type: application/json\r\nContent-Length: ${payload.size}\r\n")
+            head.append("\r\n")
+            val o = ssl.getOutputStream()
+            o.write(head.toString().toByteArray(Charsets.ISO_8859_1))
+            if (payload != null) o.write(payload)
+            o.flush()
+            val raw = java.io.ByteArrayOutputStream(); val buf = ByteArray(8192)
+            val ins = ssl.getInputStream()
+            while (true) {
+                val n = try { ins.read(buf) } catch (e: IOException) { if (raw.size() == 0) throw e else -1 }
+                if (n < 0) break
+                raw.write(buf, 0, n)
+                require(raw.size() <= 1_500_000) { "Server reply is too large" }
+            }
+            val bytes = raw.toByteArray()
+            val text = String(bytes, Charsets.ISO_8859_1)
+            val split = text.indexOf("\r\n\r\n")
+            if (split < 0) throw IOException("Incomplete reply from the server")
+            val lines = text.substring(0, split).split("\r\n")
+            val code = lines[0].split(" ").getOrNull(1)?.toIntOrNull() ?: throw IOException("Unreadable reply from the server")
+            val chunked = lines.any { it.startsWith("transfer-encoding", true) && it.contains("chunked", true) }
+            var bodyBytes = bytes.copyOfRange(split + 4, bytes.size)
+            if (chunked) bodyBytes = dechunk(bodyBytes)
+            return code to String(bodyBytes, Charsets.UTF_8)
+        } finally { try { plain.close() } catch (_: Exception) {} }
+    }
+
+    private fun httpUrlConn(method: String, url: String, body: String?): Pair<Int, String> {
         val c = URL(url).openConnection() as HttpsURLConnection
         try {
             c.requestMethod = method
