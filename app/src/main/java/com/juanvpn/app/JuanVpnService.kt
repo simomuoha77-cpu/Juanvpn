@@ -146,6 +146,7 @@ class JuanVpnService : VpnService() {
     private val nets: MutableSet<Network> = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<Network, Boolean>())
 
     override fun onStartCommand(i: Intent?, f: Int, id: Int): Int {
+        JuanBoost.init(applicationContext)
         if (i?.action == STOP) { stopping = true; teardown(); post("DISCONNECTED", "", ""); stopSelf(); return START_NOT_STICKY }
         val json = i?.getStringExtra(CFG) ?: run { stopSelf(); return START_NOT_STICKY }
         if (JuanBus.state == "CONNECTING" || JuanBus.state == "CONNECTED" || (!stopping && worker?.isAlive == true)) {
@@ -325,25 +326,24 @@ class JuanVpnService : VpnService() {
         statsJob?.cancel(false); statsJob = null
         try { engine?.stop() } catch (_: Exception) {}
         engine = null
-        val max = 6
         var attempt = 0
-        while (live() && attempt < max) {
+        while (live()) {                       // keeps trying until the user stops it; only a fatal error (e.g. wrong login) ends it
             if (nets.isEmpty()) {
                 post("CONNECTING", "Waiting for network", "")
-                if (!awaitNetwork(10 * 60_000L)) break
+                if (!awaitNetwork(6 * 3_600_000L)) break
                 JuanBus.log("Network: ready, reconnecting")
                 JuanDevice.networkLines(this).forEach { JuanBus.log(it) }
                 Thread.sleep(2500)                 // the radio needs a moment after airplane mode
                 post("CONNECTING", "Reconnecting", "")
             }
             attempt++
-            JuanBus.log("Reconnect: attempt $attempt/$max")
+            JuanBus.log("Reconnect: attempt $attempt")
             val ex = connectOnce(json, false)
             if (!live()) return
             if (JuanBus.state == "CONNECTED") { JuanBus.log("Reconnect: connected again"); return }
             JuanBus.log("Reconnect: failed - " + JuanSshEngine.friendly(JuanRotation.rootCause(ex ?: RuntimeException("No connection"))))
             if (ex is JuanFatalException) break
-            Thread.sleep(minOf(3000L * attempt, 15000L))
+            Thread.sleep(minOf(3000L * attempt, 30000L))
         }
         if (live()) {
             JuanBus.log("Reconnect: giving up")
@@ -677,7 +677,7 @@ class JuanVpnService : VpnService() {
 
     private fun startStats(e: TunnelEngine) {
         var lu = 0L; var ld = 0L
-        statsJob = sched.scheduleAtFixedRate({
+        statsJob = sched.scheduleAtFixedRate({ try {
             val u = e.up.get(); val d = e.down.get()
             JuanBus.onStats?.invoke(JSONObject().put("up", u).put("down", d).put("upBps", u - lu).put("downBps", d - ld).put("ip", JuanBus.publicIp).put("ping", JuanBus.pingMs)
                 .put("uptime", (System.currentTimeMillis() - t0) / 1000))
@@ -687,12 +687,40 @@ class JuanVpnService : VpnService() {
                 if (autoReconnect && lastJson != null) beginReconnect("connection lost")
                 else { teardown(); post("ERROR", "", "Tunnel connection dropped"); stopSelf() }
             }
-        }, 1, 1, TimeUnit.SECONDS)
+        } catch (t: Throwable) {
+            // An exception that escapes a scheduled task cancels it for good: the watchdog would silently stop.
+            try { JuanBus.log("Monitor: ${t.javaClass.simpleName} ${(t.message ?: "").take(80)}") } catch (_: Throwable) {}
+        } }, 1, 1, TimeUnit.SECONDS)
+    }
+
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
+    private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
+
+    /** Keeps the CPU and the Wi-Fi radio awake while the tunnel is up, so the screen turning off does not drop it. */
+    private fun holdLocks(on: Boolean) {
+        try {
+            if (on) {
+                if (wakeLock == null) wakeLock = getSystemService(android.os.PowerManager::class.java)
+                    .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "juanvpn:tunnel").also { it.setReferenceCounted(false) }
+                if (wakeLock?.isHeld != true) wakeLock?.acquire(24L * 3_600_000L)
+                if (wifiLock == null) {
+                    val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+                    @Suppress("DEPRECATION")
+                    wifiLock = wm.createWifiLock(if (Build.VERSION.SDK_INT >= 29) android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+                        else android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "juanvpn:wifi").also { it.setReferenceCounted(false) }
+                }
+                if (wifiLock?.isHeld != true) wifiLock?.acquire()
+            } else {
+                wakeLock?.let { if (it.isHeld) it.release() }
+                wifiLock?.let { if (it.isHeld) it.release() }
+            }
+        } catch (_: Throwable) {}
     }
 
     private fun post(s: String, d: String, e: String) {
         JuanBus.state = s; JuanBus.detail = d; JuanBus.error = e
         if (s == "DISCONNECTED" || s == "ERROR") { JuanBus.publicIp = ""; JuanBus.socksPort = 0; JuanBus.pingMs = -2 }
+        holdLocks(s != "DISCONNECTED" && s != "ERROR")
         JuanBus.log("State: $s${if (d.isNotEmpty()) " ($d)" else ""}")
         JuanBus.onState?.invoke(s, d, e)
         val safeNotification = when (s) {
@@ -744,7 +772,7 @@ class JuanVpnService : VpnService() {
     }
 
     override fun onRevoke() { teardown(); post("DISCONNECTED", "", "VPN permission revoked"); stopSelf() }
-    override fun onDestroy() { teardown(); sched.shutdownNow(); super.onDestroy() }
+    override fun onDestroy() { teardown(); holdLocks(false); sched.shutdownNow(); super.onDestroy() }
 
     private fun channel() {
         if (Build.VERSION.SDK_INT >= 26) getSystemService(NotificationManager::class.java)

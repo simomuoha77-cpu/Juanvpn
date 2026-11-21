@@ -270,7 +270,7 @@ const dur=s=>{s=+s||0;const p=x=>String(x).padStart(2,'0');return `${p(s/3600|0)
 /* screens */
 const V={
 home(){const on=ST.state==='CONNECTED'||ST.state==='CONNECTING';
-return `${S._hjLocked?'<div class="warn">This is a password-unlocked, owner-locked configuration. Editing is disabled.</div>':''}<button class="btn start ${on?'bad':'pri'}" data-act="${on?'stop':'start'}">${ST.state==='CONNECTING'?'Cancel':on?'Stop':'Start'}</button>
+return `${B()&&B().batteryOk&&!B().batteryOk()?'<div class="warn" data-act="battery">Android may stop the VPN while the screen is off. Tap here and allow it to run in the background.</div>':''}${S._hjLocked?'<div class="warn">This is a password-unlocked, owner-locked configuration. Editing is disabled.</div>':''}<button class="btn start ${on?'bad':'pri'}" data-act="${on?'stop':'start'}">${ST.state==='CONNECTING'?'Cancel':on?'Stop':'Start'}</button>
 ${card('',`<div class="st ${ST.state}"><span class="dot"></span><div style="flex:1"><b>${ST.state[0]+ST.state.slice(1).toLowerCase()}</b><div style="color:var(--mu);font-size:12.5px">${esc(ST.detail||(S._hjLocked?'Locked configuration':S.name))}</div></div>${ST.state==='CONNECTED'&&S.ping?`<span class="pg ${pingCls(STAT.ping??-2)}">${(STAT.ping??-2)===-2?'…':STAT.ping<0?'No reply':STAT.ping+' ms'}</span>`:''}</div>
 <div class="stats"><div><b>${dur(STAT.uptime)}</b><small>Uptime</small></div><div><b>${fmt(STAT.downBps)}/s</b><small>Download</small></div><div><b>${fmt(STAT.upBps)}/s</b><small>Upload</small></div><div><b>${fmt(STAT.down)}</b><small>Downloaded</small></div><div><b>${fmt(STAT.up)}</b><small>Uploaded</small></div><div data-act="refreshIp" style="cursor:pointer"><b>${esc(getLocalIp()||'—')}</b><small>Local IP</small></div></div>${ST.error?`<div class="err" style="padding-top:12px">${esc(ST.error)}</div>`:''}`)}
 ${HJ.notes&&String(HJ.notes).trim()?card('Message from config owner',`<div class="fld" style="white-space:pre-wrap;line-height:1.5">${esc(HJ.notes)}</div>`):''}
@@ -496,6 +496,7 @@ else if(kind==='dl'){unmodal();JuanUI.importFile(r.text)}};
 JuanUI.cloudImportLink=u=>{nav('servers');cloudFetchStart(u)};
 
 const ACT={
+battery(){try{B()&&B().ignoreBattery&&B().ignoreBattery()}catch(e){}},
 refreshIp(){try{getLocalIp();render();if(B()&&B().refreshIp)B().refreshIp();toast('Checking IP…')}catch(e){}},
 tg(){if(B()&&B().openUrl)B().openUrl('https://t.me/hometechnol');else window.open('https://t.me/hometechnol','_blank')},
 copyId(){B()&&B().copyText?(B().copyText(deviceId()),toast('Device ID copied')):toast('Available inside the Android app')},

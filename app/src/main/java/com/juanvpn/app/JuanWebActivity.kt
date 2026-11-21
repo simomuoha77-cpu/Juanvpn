@@ -336,6 +336,14 @@ class JuanWebActivity : Activity() {
                 .put("id", HJDeviceKey.fingerprint() ?: "").toString()
         } catch (e: Exception) { "ERROR:${e.message ?: "Device key unavailable"}" }
         /** Deletes this phone's device key. Files bound only to it can never be opened here again. */
+        /** True when Android already lets the app run in the background without battery restrictions. */
+        @JavascriptInterface fun batteryOk(): Boolean = try {
+            Build.VERSION.SDK_INT < 23 || getSystemService(android.os.PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
+        } catch (_: Throwable) { true }
+        @JavascriptInterface fun ignoreBattery() = runOnUiThread {
+            try { startActivity(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))) }
+            catch (_: Throwable) { try { startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } catch (_: Throwable) {} }
+        }
         @JavascriptInterface fun deviceRevoke(): String { HJDeviceKey.revoke(); return "ok" }
         /** Blocks screenshots and screen recording while a sensitive screen is open (HJ unlock). */
         @JavascriptInterface fun setSecure(on: Boolean) = runOnUiThread {

@@ -43,7 +43,31 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
     @Volatile private var proxy: JuanProxy? = null
     private var server: ServerSocket? = null
     private val running = AtomicBoolean(false)
-    private val pool = Executors.newCachedThreadPool()
+    private val seq = java.util.concurrent.atomic.AtomicInteger()
+    // Same behaviour as a cached pool, but every thread gets a small 512 KB stack so hundreds of connections do not
+    // exhaust memory, and a refused thread never takes the app down (see spawn()).
+    private val pool: java.util.concurrent.ExecutorService = java.util.concurrent.ThreadPoolExecutor(
+        0, Int.MAX_VALUE, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.SynchronousQueue<Runnable>(),
+        java.util.concurrent.ThreadFactory { r -> Thread(null, r, "juan-ssh-${seq.incrementAndGet()}", 512 * 1024).also { it.isDaemon = true } })
+
+    /** Starts work on the pool. False (instead of a crash) when the system refuses another thread. */
+    private fun spawn(r: () -> Unit): Boolean = try { pool.execute { r() }; true } catch (_: Throwable) { false }
+
+    /**
+     * Accept loop that survives per-connection problems: a reset socket, running out of file descriptors or threads
+     * only drops that one connection. Before, any such error switched the whole tunnel to "lost" and reconnected.
+     */
+    private fun acceptLoop(ss: ServerSocket, serve: (Socket) -> Unit) {
+        while (running.get() && !ss.isClosed) {
+            val cl = try { ss.accept() } catch (_: Exception) {
+                if (ss.isClosed || !running.get()) return
+                try { Thread.sleep(100) } catch (_: InterruptedException) { return }
+                continue
+            }
+            try { cl.tcpNoDelay = true } catch (_: Exception) {}
+            if (!spawn { serve(cl) }) try { cl.close() } catch (_: Exception) {}
+        }
+    }
 
     // ---------- speed: bigger channel window + parallel links ----------
     private val sessions = java.util.concurrent.CopyOnWriteArrayList<Session>()
@@ -65,7 +89,7 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
         // Keep the user's shorter interval, but cap very long values: after a network
         // handover a dead TCP path must be detected promptly so auto-reconnect can run.
         s.setServerAliveInterval(c.keepalive.coerceIn(10, 30) * 1000)
-        s.setServerAliveCountMax(3)
+        s.setServerAliveCountMax(5)       // a brief radio stall must not count as a dead link
         val px = JuanProxy(c, if (primary) log else quiet, protect)
         if (primary) proxy = px else extraProxies.add(px)
         s.setProxy(px)
@@ -84,7 +108,7 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
         sessions.add(s)
         val ss = ServerSocket(0, 128, InetAddress.getByName("127.0.0.1"))
         server = ss; port = ss.localPort; running.set(true)
-        pool.execute { while (running.get()) try { val cl = ss.accept(); cl.tcpNoDelay = true; pool.execute { handle(cl, pick()) } } catch (_: Exception) { if (running.get()) running.set(false) } }
+        spawn { acceptLoop(ss) { cl -> handle(cl, pick()) } }
         log("Tunnel: local forwarder on 127.0.0.1:$port")
         openExtraLinks()
     }
@@ -98,12 +122,12 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
     private fun openExtraLinks() {
         val want = c.links.coerceIn(1, 4)
         if (want <= 1 || c.sshHost == "127.0.0.1") return          // 127.0.0.1 = DNS tunnel: no bandwidth to share
-        if (boostOff.contains(boostKey)) { log("Boost: off for this server (it allows one login at a time)"); return }
+        if (JuanBoost.isOff(boostKey)) { log("Boost: off for this server (it allows one login at a time)"); return }
         pool.execute {
             var n = 1
             while (n < want && running.get()) {
                 try {
-                    Thread.sleep(700)
+                    Thread.sleep(if (n == 1) 10_000L else 2_000L)   // let the main link finish its checks first
                     val s2 = openSession(false)
                     if (!running.get()) { try { s2.disconnect() } catch (_: Exception) {}; break }
                     sessions.add(s2); n++
@@ -130,14 +154,30 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
     }
 
 
+    @Volatile private var extraDeadAt = 0L
+
     override fun alive(): Boolean {
         val ok = running.get() && session?.isConnected == true
-        if (!ok && !stopped && boostAt > 0 && System.currentTimeMillis() - boostAt < 30_000) {
-            boostOff.add(boostKey)                                  // the extra login cost us the main link
-            log("Boost: turned off for this server (it allows one login at a time)")
-        }
+        if (stopped) return ok
+        val now = System.currentTimeMillis()
+        if (!ok) {
+            // The server dropped the main link soon after an extra login: it allows one login at a time.
+            if (boostAt > 0 && now - boostAt < 120_000) boostOff("the main link dropped right after an extra login")
+        } else if (sessions.size > 1 && sessions.any { it !== session && !it.isConnected }) {
+            // An extra link died while the main one lives (a network fault would have taken both): the server is policing logins.
+            if (extraDeadAt == 0L) extraDeadAt = now
+            else if (now - extraDeadAt > 3_000) {
+                boostOff("the server closed an extra link")
+                sessions.filter { it !== session }.forEach { try { it.disconnect() } catch (_: Exception) {} }
+                val keep = sessions.filter { it === session }
+                sessions.clear(); sessions.addAll(keep)
+                extraDeadAt = 0L
+            }
+        } else extraDeadAt = 0L
         return ok
     }
+
+    private fun boostOff(why: String) { JuanBoost.off(boostKey); log("Boost: turned off for this server ($why)") }
 
     private val extra = java.util.concurrent.CopyOnWriteArrayList<ServerSocket>()
 
@@ -146,7 +186,7 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
         val s = session ?: throw IllegalStateException("SSH is not connected")
         val ss = ServerSocket(0, 64, InetAddress.getByName("127.0.0.1"))
         extra.add(ss)
-        pool.execute { while (running.get()) try { val cl = ss.accept(); cl.tcpNoDelay = true; pool.execute { pipeTo(cl, pick(), host, rport) } } catch (_: Exception) { break } }
+        spawn { acceptLoop(ss) { cl -> pipeTo(cl, pick(), host, rport) } }
         return ss.localPort
     }
 
@@ -361,8 +401,6 @@ class JuanSshEngine(private val c: JuanCfg, private val log: (String) -> Unit, p
 
     companion object {
         private const val WINDOW = 4 * 1024 * 1024
-        /** Servers that dropped the main link right after an extra login: no parallel links for them until restart. */
-        private val boostOff: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
         /** Channel window setters, looked up once (they are package-private in some JSch versions). */
         private val windowSetters: List<java.lang.reflect.Method> = listOf("setLocalWindowSizeMax", "setLocalWindowSize").mapNotNull { n ->
             try { com.jcraft.jsch.Channel::class.java.getDeclaredMethod(n, Int::class.javaPrimitiveType).also { it.isAccessible = true } } catch (_: Throwable) { null }

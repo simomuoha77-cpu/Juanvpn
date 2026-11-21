@@ -14,8 +14,15 @@ object JuanCrash {
         val app = c.applicationContext
         val old = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { t, e ->
-            try { File(app.filesDir, "crash.txt").writeText("${Date()} thread=${t.name}\n" + Log.getStackTraceString(e).take(3000)) } catch (_: Throwable) {}
-            old?.uncaughtException(t, e)
+            val text = "${Date()} thread=${t.name}\n" + Log.getStackTraceString(e).take(3000)
+            if (t === android.os.Looper.getMainLooper().thread) {
+                try { File(app.filesDir, "crash.txt").writeText(text) } catch (_: Throwable) {}
+                old?.uncaughtException(t, e)               // a real UI-thread crash still ends the process
+            } else {
+                // Network and worker threads: keep the app and the VPN running, remember what happened.
+                try { File(app.filesDir, "bgerr.txt").writeText(text) } catch (_: Throwable) {}
+                try { JuanBus.log("Recovered: ${t.name} ${e.javaClass.simpleName} ${(e.message ?: "").take(80)}") } catch (_: Throwable) {}
+            }
         }
     }
 
@@ -31,6 +38,8 @@ object JuanCrash {
         val sb = StringBuilder()
         val f = File(c.filesDir, "crash.txt")
         if (f.exists()) { sb.append("Last crash:\n").append(f.readText()); f.delete() }
+        val g = File(c.filesDir, "bgerr.txt")
+        if (g.exists()) { sb.append("\nBackground error (the app kept running):\n").append(g.readText()); g.delete() }
         if (Build.VERSION.SDK_INT >= 30) try {
             val sp = c.getSharedPreferences("juan_crash", Context.MODE_PRIVATE)
             c.getSystemService(ActivityManager::class.java).getHistoricalProcessExitReasons(c.packageName, 0, 1).firstOrNull()?.let {
